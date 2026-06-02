@@ -634,6 +634,7 @@ function AssignmentInfo({
   currentUserId: string | null;
 }) {
   const latestAssignment = details.assignments[0] ?? null;
+  const uploadedByProfile = tender.uploaded_by_profile ?? null;
   const assignedToProfile = latestAssignment?.assignee ?? tender.assigned_profile ?? (tender.assigned_to ? userById.get(tender.assigned_to) : null);
   const assignedByProfile = latestAssignment?.assigner ?? tender.assigned_by_profile ?? (tender.assigned_by ? userById.get(tender.assigned_by) : null);
   const assignedOn = latestAssignment?.assigned_date ?? tender.assigned_date ?? null;
@@ -641,6 +642,7 @@ function AssignmentInfo({
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
+      <InfoValue label="Uploaded By">{formatProfileDisplayName(uploadedByProfile)}</InfoValue>
       <InfoValue label="Assigned To">
         <span>{tender.assigned_to ? formatProfileDisplayName(assignedToProfile) : "Unassigned"}</span>
         {currentUserId && tender.assigned_to === currentUserId && <Badge tone="blue">My Lead</Badge>}

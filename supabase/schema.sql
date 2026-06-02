@@ -212,12 +212,8 @@ create policy "tenders_select_scope" on public.tenders for select
 using (
   public.current_profile_role() = 'ADMIN'
   or public.current_profile_role() = 'MANAGER'
-  or exists (
-    select 1
-    from public.lead_assignments la
-    where la.tender_id = id
-      and la.assigned_to = auth.uid()
-  )
+  or uploaded_by = auth.uid()
+  or assigned_to = auth.uid()
 );
 
 create policy "tenders_manual_insert_scope" on public.tenders for insert

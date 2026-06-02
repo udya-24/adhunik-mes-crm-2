@@ -46,6 +46,7 @@ export type Tender = {
   assigned_date?: string | null;
   assigned_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
   assigned_by_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
+  uploaded_by_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
   lead_status: LeadStatus;
   is_deleted: boolean;
   deleted_at: string | null;

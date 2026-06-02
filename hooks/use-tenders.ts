@@ -10,6 +10,9 @@ function logQueryError(queryName: string, error: { message?: string; details?: s
   console.error(queryName, error.message, error.details, error.hint);
 }
 
+const tenderSelect =
+  "*, uploaded_by_profile:profiles!tenders_uploaded_by_fkey(full_name,email,role), assigned_profile:profiles!tenders_assigned_to_fkey(full_name,email,role), assigned_by_profile:profiles!tenders_assigned_by_fkey(full_name,email,role)";
+
 export function useTenders() {
   return useQuery({
     queryKey: tenderQueryKeys.all,
@@ -28,36 +31,18 @@ export function useTenders() {
       }
 
       const currentProfile = profile as Pick<Profile, "id" | "role" | "full_name" | "email"> | null;
-      if (currentProfile?.role === "USER") {
-        const { data: assignments, error: assignmentsError } = await supabase
-          .from("lead_assignments")
-          .select("tender_id")
-          .eq("assigned_to", currentProfile.id);
-
-        if (assignmentsError) {
-          logQueryError("useTenders lead_assignments", assignmentsError);
-          return [];
-        }
-
-        const tenderIds = Array.from(new Set((assignments ?? []).map((row) => row.tender_id).filter(Boolean)));
-        if (!tenderIds.length) return [];
-
-        const { data, error } = await supabase.from("tenders").select("*").in("id", tenderIds).eq("is_deleted", false).order("created_at", { ascending: false });
-        if (error) {
-          logQueryError("useTenders tenders for USER", error);
-          return [];
-        }
-
-        return enrichTendersWithAssignments(supabase, (data ?? []) as Tender[]);
-      }
-
-      const { data, error } = await supabase.from("tenders").select("*").eq("is_deleted", false).order("created_at", { ascending: false });
+      const query = supabase.from("tenders").select(tenderSelect).eq("is_deleted", false).order("created_at", { ascending: false });
+      const { data, error } = await (
+        currentProfile?.role === "USER"
+          ? query.or(`uploaded_by.eq.${currentProfile.id},assigned_to.eq.${currentProfile.id}`)
+          : query
+      );
 
       if (error) {
         logQueryError("useTenders tenders", error);
         return [];
       }
-      return enrichTendersWithAssignments(supabase, (data ?? []) as Tender[]);
+      return enrichTendersWithAssignments(supabase, normalizeTenderProfiles((data ?? []) as Tender[]));
     }
   });
 }
@@ -102,13 +87,19 @@ function firstProfile<T>(profile: T | T[] | null | undefined) {
   return Array.isArray(profile) ? profile[0] ?? null : profile ?? null;
 }
 
+function normalizeTenderProfiles(tenders: Tender[]) {
+  return tenders.map((tender) => ({
+    ...tender,
+    uploaded_by_profile: firstProfile(tender.uploaded_by_profile),
+    assigned_profile: firstProfile(tender.assigned_profile),
+    assigned_by_profile: firstProfile(tender.assigned_by_profile)
+  }));
+}
+
 function clearTenderAssignment(tender: Tender): Tender {
   return {
     ...tender,
-    assigned_to: null,
-    assigned_by: null,
-    assigned_date: null,
-    assigned_profile: null,
-    assigned_by_profile: null
+    assigned_profile: firstProfile(tender.assigned_profile),
+    assigned_by_profile: firstProfile(tender.assigned_by_profile)
   };
 }
