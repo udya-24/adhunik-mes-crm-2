@@ -41,10 +41,17 @@ export type Tender = {
   uploaded_by: string | null;
   assigned_to: string | null;
   assigned_by: string | null;
+  assigned_user_name?: string | null;
+  assigned_user_email?: string | null;
+  assigned_date?: string | null;
+  assigned_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
+  assigned_by_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
   lead_status: LeadStatus;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: string | null;
   created_at: string;
   updated_at: string;
-  assigned_profile?: Pick<Profile, "full_name" | "email"> | null;
 };
 
 export type ManualTenderInsert = {
@@ -69,6 +76,39 @@ export type ManualTenderInsert = {
   aoc_attachment_url?: string | null;
   tender_document_url?: string | null;
   our_value?: number | null;
+};
+
+export type LeadAssignment = {
+  id: string;
+  tender_id: string;
+  assigned_to: string;
+  assigned_by: string;
+  assigned_date: string;
+  remarks: string | null;
+  tender?: Pick<Tender, "tender_id" | "bidder_name" | "ge" | "cwe"> | null;
+  assignee?: Pick<Profile, "full_name" | "email" | "role"> | null;
+  assigner?: Pick<Profile, "full_name" | "email" | "role"> | null;
+};
+
+export type TenderFollowUp = {
+  id: string;
+  tender_id: string;
+  user_id: string;
+  follow_up_date: string;
+  remarks: string;
+  status: LeadStatus;
+  created_at: string;
+  user?: Pick<Profile, "full_name" | "email"> | null;
+};
+
+export type LeadActivity = {
+  id: string;
+  tender_id: string;
+  user_id: string;
+  activity_type: string;
+  activity_notes: string | null;
+  created_at: string;
+  user?: Pick<Profile, "full_name" | "email"> | null;
 };
 
 export type DashboardMetrics = {

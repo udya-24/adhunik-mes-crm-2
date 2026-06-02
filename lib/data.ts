@@ -1,38 +1,122 @@
 import { unstable_noStore as noStore } from "next/cache";
-import { endOfDay, formatISO, startOfDay } from "date-fns";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, requireRole } from "@/lib/auth";
+import { getISTDayBoundsISO } from "@/lib/date-utils";
+import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardMetrics, Profile, Tender } from "@/lib/types";
+
+const defaultDashboardMetrics: DashboardMetrics = {
+  totalTenders: 0,
+  totalTenderValue: 0,
+  assignedLeads: 0,
+  unassignedLeads: 0,
+  wonLeads: 0,
+  lostLeads: 0
+};
+
+const emptyFollowUpBuckets = {
+  today: [],
+  overdue: [],
+  upcoming: []
+};
+
+function logQueryError(queryName: string, error: { message?: string; details?: string | null; hint?: string | null } | null) {
+  if (!error) return;
+  console.error(queryName, error.message, error.details, error.hint);
+}
+
+async function requireAdmin() {
+  return requireRole(["ADMIN"]);
+}
+
+export async function getProfileDisplayName(profileId: string | null | undefined) {
+  noStore();
+  if (!profileId) return "Unknown User";
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("profiles").select("full_name,email").eq("id", profileId).maybeSingle();
+  if (error) {
+    logQueryError("getProfileDisplayName profile", error);
+    return "Unknown User";
+  }
+
+  return formatProfileDisplayName(data);
+}
 
 export async function getTenderRows({ limit = 50 }: { limit?: number } = {}) {
   noStore();
   const supabase = await createClient();
   const profile = await getCurrentProfile();
-  const query = supabase
-    .from("tenders")
-    .select("*")
-    .order("created_at", { ascending: false });
 
+  if (profile?.role === "USER") {
+    const { data: assignments, error: assignmentsError } = await supabase
+      .from("lead_assignments")
+      .select("tender_id")
+      .eq("assigned_to", profile.id);
+
+    if (assignmentsError) {
+      logQueryError("getTenderRows lead_assignments", assignmentsError);
+      return [];
+    }
+
+    const tenderIds = Array.from(new Set((assignments ?? []).map((row) => row.tender_id).filter(Boolean)));
+    if (!tenderIds.length) return [];
+
+    const query = supabase.from("tenders").select("*").in("id", tenderIds).eq("is_deleted", false).order("created_at", { ascending: false });
+    const { data, error } = await (limit ? query.limit(limit) : query);
+
+    if (error) {
+      logQueryError("getTenderRows tenders for USER", error);
+      return [];
+    }
+
+    return enrichTendersWithAssignments(supabase, (data ?? []) as Tender[]);
+  }
+
+  const query = supabase.from("tenders").select("*").eq("is_deleted", false).order("created_at", { ascending: false });
   const { data, error } = await (limit ? query.limit(limit) : query);
 
-  console.log("[getTenderRows] returned rows count", data?.length ?? 0);
-  console.log("[getTenderRows] Supabase error object", error);
-  console.log("[getTenderRows] role", profile?.role ?? "UNKNOWN");
+  if (error) {
+    logQueryError("getTenderRows tenders", error);
+    return [];
+  }
+  return enrichTendersWithAssignments(supabase, (data ?? []) as Tender[]);
+}
 
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Tender[];
+export async function getDeletedTenderRows() {
+  noStore();
+  await requireAdmin();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tenders")
+    .select("*, deleted_by_profile:profiles!tenders_deleted_by_fkey(full_name,email)")
+    .eq("is_deleted", true)
+    .order("deleted_at", { ascending: false });
+
+  if (error) {
+    logQueryError("getDeletedTenderRows tenders", error);
+    return [];
+  }
+
+  return data ?? [];
 }
 
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
-  const tenders = await getTenderRows({ limit: 5000 });
-  return {
-    totalTenders: tenders.length,
-    totalTenderValue: tenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
-    assignedLeads: tenders.filter((tender) => tender.assigned_to).length,
-    unassignedLeads: tenders.filter((tender) => !tender.assigned_to).length,
-    wonLeads: tenders.filter((tender) => tender.lead_status === "WON").length,
-    lostLeads: tenders.filter((tender) => tender.lead_status === "LOST").length
-  };
+  noStore();
+  try {
+    const tenders = await getTenderRows({ limit: 5000 });
+    return {
+      totalTenders: tenders.length,
+      totalTenderValue: tenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
+      assignedLeads: tenders.filter((tender) => tender.assigned_to).length,
+      unassignedLeads: tenders.filter((tender) => !tender.assigned_to).length,
+      wonLeads: tenders.filter((tender) => tender.lead_status === "WON").length,
+      lostLeads: tenders.filter((tender) => tender.lead_status === "LOST").length
+    };
+  } catch (error) {
+    console.error("getDashboardMetrics", error);
+    return defaultDashboardMetrics;
+  }
 }
 
 export async function getAssignableUsers() {
@@ -62,24 +146,43 @@ export async function getUploadHistory() {
 export async function getAssignmentHistory() {
   noStore();
   const supabase = await createClient();
-  const { data } = await supabase
+  const profile = await getCurrentProfile();
+  let query = supabase
     .from("lead_assignments")
-    .select("*, tender:tenders(tender_id,bidder_name,ge,cwe), assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email), assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email)")
+    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,is_deleted), assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role), assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
+    .eq("tender.is_deleted", false)
     .order("assigned_date", { ascending: false })
     .limit(100);
+
+  if (profile?.role === "USER") query = query.eq("assigned_to", profile.id);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("[getAssignmentHistory] assignment history error", error);
+    return [];
+  }
   return data ?? [];
 }
 
 export async function getFollowUpBuckets() {
   noStore();
   const supabase = await createClient();
-  const todayStart = formatISO(startOfDay(new Date()));
-  const todayEnd = formatISO(endOfDay(new Date()));
-  const { data } = await supabase
+  const profile = await getCurrentProfile();
+  const { start: todayStart, end: todayEnd } = getISTDayBoundsISO();
+  let query = supabase
     .from("follow_ups")
-    .select("*, tender:tenders(tender_id,bidder_name,ge,cwe), user:profiles(full_name,email)")
+    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,is_deleted)")
+    .eq("tender.is_deleted", false)
     .order("follow_up_date", { ascending: true })
     .limit(200);
+
+  if (profile?.role === "USER") query = query.eq("user_id", profile.id);
+
+  const { data, error } = await query;
+  if (error) {
+    logQueryError("getFollowUpBuckets follow_ups", error);
+    return emptyFollowUpBuckets;
+  }
 
   const rows = data ?? [];
   return {
@@ -91,10 +194,10 @@ export async function getFollowUpBuckets() {
 
 export async function getAnalyticsBreakdowns() {
   const tenders = await getTenderRows({ limit: 5000 });
-  const group = (key: keyof Tender) => {
+  const groupByValue = (getName: (tender: Tender) => string | null | undefined) => {
     const map = new Map<string, { name: string; count: number; value: number; won: number; lost: number }>();
     tenders.forEach((tender) => {
-      const name = String(tender[key] || "Unknown");
+      const name = String(getName(tender) || "Unknown");
       const row = map.get(name) ?? { name, count: 0, value: 0, won: 0, lost: 0 };
       row.count += 1;
       row.value += Number(tender.awarded_value ?? 0);
@@ -106,10 +209,64 @@ export async function getAnalyticsBreakdowns() {
   };
 
   return {
-    ge: group("ge"),
-    cwe: group("cwe"),
-    bidder: group("bidder_name"),
-    user: group("assigned_to")
+    ge: groupByValue((tender) => tender.ge),
+    cwe: groupByValue((tender) => tender.cwe),
+    bidder: groupByValue((tender) => tender.bidder_name),
+    user: groupByValue((tender) => (tender.assigned_to ? assignedTenderUserName(tender) : "Unassigned"))
+  };
+}
+
+function assignedTenderUserName(tender: Tender) {
+  return formatProfileDisplayName(tender.assigned_profile);
+}
+
+async function enrichTendersWithAssignments(supabase: Awaited<ReturnType<typeof createClient>>, tenders: Tender[]) {
+  if (!tenders.length) return tenders;
+
+  const tenderIds = tenders.map((tender) => tender.id);
+  const { data, error } = await supabase
+    .from("lead_assignments")
+    .select("tender_id,assigned_to,assigned_by,assigned_date,assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role),assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
+    .in("tender_id", tenderIds)
+    .order("assigned_date", { ascending: false });
+
+  if (error) {
+    logQueryError("enrichTendersWithAssignments lead_assignments", error);
+    return tenders.map(clearTenderAssignment);
+  }
+
+  const latestByTenderId = new Map<string, NonNullable<typeof data>[number]>();
+  (data ?? []).forEach((assignment) => {
+    if (!latestByTenderId.has(assignment.tender_id)) latestByTenderId.set(assignment.tender_id, assignment);
+  });
+
+  return tenders.map((tender) => {
+    const assignment = latestByTenderId.get(tender.id);
+    if (!assignment) return clearTenderAssignment(tender);
+
+    return {
+      ...tender,
+      assigned_to: assignment.assigned_to,
+      assigned_by: assignment.assigned_by,
+      assigned_date: assignment.assigned_date,
+      assigned_profile: firstProfile(assignment.assignee),
+      assigned_by_profile: firstProfile(assignment.assigner)
+    } as unknown as Tender;
+  });
+}
+
+function firstProfile<T>(profile: T | T[] | null | undefined) {
+  return Array.isArray(profile) ? profile[0] ?? null : profile ?? null;
+}
+
+function clearTenderAssignment(tender: Tender): Tender {
+  return {
+    ...tender,
+    assigned_to: null,
+    assigned_by: null,
+    assigned_date: null,
+    assigned_profile: null,
+    assigned_by_profile: null
   };
 }
 

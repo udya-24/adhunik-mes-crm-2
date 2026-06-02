@@ -9,6 +9,7 @@ export const routeRolePermissions: Record<string, readonly Role[]> = {
   "/analytics": ["ADMIN", "MANAGER"],
   "/contractor-intelligence": ["ADMIN", "MANAGER"],
   "/product-intelligence": ["ADMIN", "MANAGER"],
+  "/deleted-tenders": ["ADMIN"],
   "/users": ["ADMIN"],
   "/settings": ["ADMIN"]
 };

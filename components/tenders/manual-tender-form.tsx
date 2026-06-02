@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, UploadCloud } from "lucide-react";
+import { FilePlus2, Loader2, UploadCloud } from "lucide-react";
 import { createTenderAction } from "@/app/actions/tenders";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -153,8 +153,13 @@ export function ManualTenderForm() {
 
   return (
     <Card>
-      <h1 className="text-xl font-bold text-navy-900">Manual Tender Entry</h1>
-      <p className="mb-5 text-sm text-slate-600">Manual and Excel records use the same tenders table with source tracking.</p>
+      <div className="mb-5 flex items-center gap-3">
+        <span className="grid h-11 w-11 place-items-center rounded-xl bg-amber-50 text-amber-600"><FilePlus2 size={20} /></span>
+        <div>
+          <h1 className="text-xl font-bold text-navy-900">Manual Tender Entry</h1>
+          <p className="text-sm text-slate-600">Manual and Excel records use the same tenders table with source tracking.</p>
+        </div>
+      </div>
 
       {toast && (
         <div
@@ -200,7 +205,7 @@ export function ManualTenderForm() {
         <div className="grid gap-4 sm:col-span-2 lg:grid-cols-3">
           {attachmentFields.map((field) => (
             <Field key={field.key} label={field.label}>
-              <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-slate-50 px-3 py-4 text-center text-sm text-slate-600 hover:bg-slate-100">
+              <label className="flex min-h-24 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-border bg-slate-50 px-3 py-4 text-center text-sm text-slate-600 hover:bg-white">
                 {uploading[field.key] ? <Loader2 className="mb-2 animate-spin text-navy-700" size={20} /> : <UploadCloud className="mb-2 text-navy-700" size={20} />}
                 <span className="font-semibold text-navy-900">{attachments[field.key] ? "Uploaded" : "Choose file"}</span>
                 <span className="text-xs">PDF, DOCX, XLSX, ZIP</span>

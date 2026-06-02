@@ -7,6 +7,7 @@ import {
   LineChart,
   Settings,
   ShieldCheck,
+  Trash2,
   Users,
   Workflow
 } from "lucide-react";
@@ -24,6 +25,7 @@ export const navItems = [
   { href: "/analytics", label: "Analytics", icon: LineChart, roles: ["ADMIN", "MANAGER"] },
   { href: "/contractor-intelligence", label: "Contractors", icon: Boxes, roles: ["ADMIN", "MANAGER"] },
   { href: "/product-intelligence", label: "Products", icon: Boxes, roles: ["ADMIN", "MANAGER"] },
+  { href: "/deleted-tenders", label: "Deleted Tenders", icon: Trash2, roles: ["ADMIN"] },
   { href: "/users", label: "Users", icon: Users, roles: ["ADMIN"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] }
 ] as const;

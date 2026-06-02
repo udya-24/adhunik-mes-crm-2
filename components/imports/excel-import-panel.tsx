@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import * as XLSX from "xlsx";
-import { Upload } from "lucide-react";
+import { FileSpreadsheet, Upload } from "lucide-react";
 import { bulkImportTendersAction } from "@/app/actions/tenders";
+import { DateTime } from "@/components/common/date-time";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -56,9 +57,14 @@ export function ExcelImportPanel({ history }: { history: any[] }) {
 
   return (
     <Card>
-      <h1 className="text-xl font-bold text-navy-900">Excel Import</h1>
-      <p className="mb-5 text-sm text-slate-600">Supports XLSX, XLS, and CSV with preview, duplicate detection, and upload history.</p>
-      <label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-slate-50 p-6 text-center">
+      <div className="mb-5 flex items-center gap-3">
+        <span className="grid h-11 w-11 place-items-center rounded-xl bg-navy-50 text-navy-700"><FileSpreadsheet size={20} /></span>
+        <div>
+          <h1 className="text-xl font-bold text-navy-900">Excel Import</h1>
+          <p className="text-sm text-slate-600">Supports XLSX, XLS, and CSV with preview, duplicate detection, and upload history.</p>
+        </div>
+      </div>
+      <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-navy-200 bg-navy-50 p-6 text-center transition hover:bg-white">
         <Upload className="mb-2 text-navy-700" />
         <span className="text-sm font-semibold text-navy-900">Upload tender data</span>
         <span className="text-xs text-slate-500">XLSX, XLS, CSV</span>
@@ -70,7 +76,7 @@ export function ExcelImportPanel({ history }: { history: any[] }) {
             <p className="text-sm font-semibold">{rows.length} rows ready for preview</p>
             <Button onClick={importRows}>Import Valid Rows</Button>
           </div>
-          <div className="max-h-72 overflow-auto rounded-md border border-border">
+          <div className="max-h-72 overflow-auto rounded-xl border border-border">
             <table className="w-full min-w-[820px] text-left text-xs">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>{Object.keys(rows[0]).slice(0, 8).map((key) => <th className="px-3 py-2" key={key}>{key}</th>)}</tr>
@@ -86,13 +92,14 @@ export function ExcelImportPanel({ history }: { history: any[] }) {
           </div>
         </div>
       )}
-      {message && <p className="mt-3 rounded-md bg-navy-50 p-3 text-sm text-navy-900">{message}</p>}
+      {message && <p className="mt-3 rounded-xl bg-navy-50 p-3 text-sm font-semibold text-navy-900">{message}</p>}
       <h2 className="mt-8 font-bold text-navy-900">Upload History</h2>
       <div className="mt-3 space-y-2">
         {history.map((item) => (
-          <div key={item.id} className="rounded-md border border-border p-3 text-sm">
+          <div key={item.id} className="rounded-xl border border-border bg-slate-50 p-3 text-sm">
             <p className="font-semibold">{item.file_name}</p>
             <p className="text-slate-500">{item.imported_rows}/{item.total_rows} imported, {item.duplicate_rows} duplicates</p>
+            <p className="text-slate-500">Uploaded <DateTime value={item.created_at} /></p>
           </div>
         ))}
       </div>

@@ -42,6 +42,9 @@ create table public.tenders (
   assigned_to uuid references public.profiles(id),
   assigned_by uuid references public.profiles(id),
   lead_status lead_status not null default 'NEW',
+  is_deleted boolean not null default false,
+  deleted_at timestamptz,
+  deleted_by uuid references public.profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -117,6 +120,13 @@ create index tenders_assigned_to_idx on public.tenders(assigned_to);
 create index tenders_ge_idx on public.tenders(ge);
 create index tenders_cwe_idx on public.tenders(cwe);
 create index tenders_status_idx on public.tenders(lead_status);
+create index tenders_is_deleted_idx on public.tenders(is_deleted);
+create index lead_assignments_tender_id_idx on public.lead_assignments(tender_id);
+create index lead_assignments_assigned_to_idx on public.lead_assignments(assigned_to);
+create index lead_activities_tender_id_idx on public.lead_activities(tender_id);
+create index lead_activities_user_id_idx on public.lead_activities(user_id);
+create index follow_ups_tender_id_idx on public.follow_ups(tender_id);
+create index follow_ups_user_id_idx on public.follow_ups(user_id);
 create index follow_ups_date_idx on public.follow_ups(follow_up_date);
 
 create or replace function public.current_profile_role()
@@ -149,6 +159,38 @@ $$;
 create trigger tenders_set_updated_at before update on public.tenders
 for each row execute function public.set_updated_at();
 
+create or replace function public.prevent_non_admin_tender_soft_delete()
+returns trigger language plpgsql as $$
+begin
+  if (
+    old.is_deleted is distinct from new.is_deleted
+    or old.deleted_at is distinct from new.deleted_at
+    or old.deleted_by is distinct from new.deleted_by
+  ) and public.current_profile_role() <> 'ADMIN' then
+    raise exception 'Only admins can delete or restore tenders';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger tenders_admin_soft_delete_guard before update on public.tenders
+for each row execute function public.prevent_non_admin_tender_soft_delete();
+
+create or replace view public.tender_assignments_view
+with (security_invoker = true)
+as
+select
+  t.*,
+  p.full_name as assigned_user_name,
+  p.email as assigned_user_email,
+  la.assigned_date
+from public.tenders t
+left join public.lead_assignments la
+  on la.tender_id = t.id
+left join public.profiles p
+  on p.id = la.assigned_to;
+
 alter table public.profiles enable row level security;
 alter table public.tenders enable row level security;
 alter table public.lead_assignments enable row level security;
@@ -160,7 +202,7 @@ alter table public.ai_lead_scores enable row level security;
 alter table public.ai_tender_summaries enable row level security;
 
 create policy "profiles_select_by_role" on public.profiles for select
-using (id = auth.uid() or public.current_profile_role() in ('ADMIN','MANAGER'));
+using (is_active = true or id = auth.uid() or public.current_profile_role() in ('ADMIN','MANAGER'));
 
 create policy "profiles_admin_write" on public.profiles for all
 using (public.current_profile_role() = 'ADMIN')
@@ -169,23 +211,44 @@ with check (public.current_profile_role() = 'ADMIN');
 create policy "tenders_select_scope" on public.tenders for select
 using (
   public.current_profile_role() = 'ADMIN'
-  or (public.current_profile_role() = 'MANAGER' and (assigned_to is null or public.is_team_member(assigned_to)))
-  or assigned_to = auth.uid()
+  or public.current_profile_role() = 'MANAGER'
+  or exists (
+    select 1
+    from public.lead_assignments la
+    where la.tender_id = id
+      and la.assigned_to = auth.uid()
+  )
 );
 
-create policy "tenders_admin_insert" on public.tenders for insert
-with check (public.current_profile_role() = 'ADMIN');
+create policy "tenders_manual_insert_scope" on public.tenders for insert
+with check (
+  public.current_profile_role() in ('ADMIN','MANAGER','USER')
+  and (
+    source_type = 'MANUAL_ENTRY'
+    or public.current_profile_role() in ('ADMIN','MANAGER')
+  )
+);
 
 create policy "tenders_update_scope" on public.tenders for update
 using (
   public.current_profile_role() = 'ADMIN'
-  or (public.current_profile_role() = 'MANAGER' and (assigned_to is null or public.is_team_member(assigned_to)))
-  or assigned_to = auth.uid()
+  or public.current_profile_role() = 'MANAGER'
+  or exists (
+    select 1
+    from public.lead_assignments la
+    where la.tender_id = id
+      and la.assigned_to = auth.uid()
+  )
 )
 with check (
   public.current_profile_role() = 'ADMIN'
-  or (public.current_profile_role() = 'MANAGER' and (assigned_to is null or public.is_team_member(assigned_to)))
-  or assigned_to = auth.uid()
+  or public.current_profile_role() = 'MANAGER'
+  or exists (
+    select 1
+    from public.lead_assignments la
+    where la.tender_id = id
+      and la.assigned_to = auth.uid()
+  )
 );
 
 create policy "assignment_read" on public.lead_assignments for select
@@ -200,9 +263,9 @@ using (public.current_profile_role() in ('ADMIN','MANAGER') or user_id = auth.ui
 create policy "activities_write" on public.lead_activities for insert
 with check (user_id = auth.uid() or public.current_profile_role() in ('ADMIN','MANAGER'));
 
-create policy "upload_history_admin" on public.upload_history for all
-using (public.current_profile_role() = 'ADMIN')
-with check (public.current_profile_role() = 'ADMIN');
+create policy "upload_history_admin_manager" on public.upload_history for all
+using (public.current_profile_role() in ('ADMIN','MANAGER'))
+with check (public.current_profile_role() in ('ADMIN','MANAGER'));
 
 create policy "followups_scope" on public.follow_ups for select
 using (public.current_profile_role() in ('ADMIN','MANAGER') or user_id = auth.uid());
@@ -212,6 +275,9 @@ with check (user_id = auth.uid());
 
 create policy "audit_admin_read" on public.audit_logs for select
 using (public.current_profile_role() = 'ADMIN');
+
+create policy "audit_admin_insert" on public.audit_logs for insert
+with check (public.current_profile_role() = 'ADMIN');
 
 create policy "ai_admin_manager_read" on public.ai_lead_scores for select
 using (public.current_profile_role() in ('ADMIN','MANAGER'));

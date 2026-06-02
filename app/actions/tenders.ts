@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getCurrentProfile, requireRole } from "@/lib/auth";
+import { utcNowISOString } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 import type { ManualTenderInsert } from "@/lib/types";
 import { assignmentSchema, followUpSchema, tenderSchema } from "@/lib/validations";
@@ -98,7 +99,8 @@ export async function assignLeadAction(formData: FormData) {
       assigned_by: profile.id,
       lead_status: "ASSIGNED"
     })
-    .eq("id", payload.tenderId);
+    .eq("id", payload.tenderId)
+    .eq("is_deleted", false);
   if (error) throw new Error(error.message);
 
   await supabase.from("lead_assignments").insert({
@@ -126,7 +128,7 @@ export async function updateLeadStatusAction(formData: FormData) {
   const status = String(formData.get("status"));
   const notes = String(formData.get("notes") ?? "");
   const supabase = await createClient();
-  const { error } = await supabase.from("tenders").update({ lead_status: status }).eq("id", tenderId);
+  const { error } = await supabase.from("tenders").update({ lead_status: status }).eq("id", tenderId).eq("is_deleted", false);
   if (error) throw new Error(error.message);
   await supabase.from("lead_activities").insert({
     tender_id: tenderId,
@@ -135,6 +137,75 @@ export async function updateLeadStatusAction(formData: FormData) {
     activity_notes: notes || `Status changed to ${status}`
   });
   revalidatePath("/tenders");
+}
+
+export async function deleteTenderAction(tenderId: string) {
+  const profile = await requireRole(["ADMIN"]);
+  const supabase = await createClient();
+  const { data: existing, error: fetchError } = await supabase.from("tenders").select("*").eq("id", tenderId).eq("is_deleted", false).maybeSingle();
+  if (fetchError) throw new Error(fetchError.message);
+  if (!existing) throw new Error("Tender not found or already deleted.");
+
+  const deletedAt = utcNowISOString();
+  const updates = {
+    is_deleted: true,
+    deleted_at: deletedAt,
+    deleted_by: profile.id
+  };
+
+  const { data: updated, error } = await supabase.from("tenders").update(updates).eq("id", tenderId).select("*").single();
+  if (error) throw new Error(error.message);
+
+  const { error: auditError } = await supabase.from("audit_logs").insert({
+    table_name: "tenders",
+    record_id: tenderId,
+    user_id: profile.id,
+    action: "DELETE_TENDER",
+    old_data: existing,
+    new_data: updated
+  });
+  if (auditError) throw new Error(auditError.message);
+
+  revalidateTenderPaths();
+}
+
+export async function restoreTenderAction(tenderId: string) {
+  const profile = await requireRole(["ADMIN"]);
+  const supabase = await createClient();
+  const { data: existing, error: fetchError } = await supabase.from("tenders").select("*").eq("id", tenderId).eq("is_deleted", true).maybeSingle();
+  if (fetchError) throw new Error(fetchError.message);
+  if (!existing) throw new Error("Deleted tender not found.");
+
+  const updates = {
+    is_deleted: false,
+    deleted_at: null,
+    deleted_by: null
+  };
+
+  const { data: updated, error } = await supabase.from("tenders").update(updates).eq("id", tenderId).select("*").single();
+  if (error) throw new Error(error.message);
+
+  const { error: auditError } = await supabase.from("audit_logs").insert({
+    table_name: "tenders",
+    record_id: tenderId,
+    user_id: profile.id,
+    action: "RESTORE_TENDER",
+    old_data: existing,
+    new_data: updated
+  });
+  if (auditError) throw new Error(auditError.message);
+
+  revalidateTenderPaths();
+}
+
+function revalidateTenderPaths() {
+  revalidatePath("/dashboard");
+  revalidatePath("/tenders");
+  revalidatePath("/analytics");
+  revalidatePath("/assignments");
+  revalidatePath("/deleted-tenders");
+  revalidatePath("/contractor-intelligence");
+  revalidatePath("/product-intelligence");
 }
 
 export async function addFollowUpAction(formData: FormData) {

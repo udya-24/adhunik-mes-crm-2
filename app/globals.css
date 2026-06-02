@@ -8,8 +8,9 @@
 
 body {
   margin: 0;
-  background: #f7f9fc;
+  background: #ffffff;
   color: #101828;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
 button,
@@ -21,5 +22,10 @@ textarea {
 
 .table-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #9aa7bd transparent;
+  scrollbar-color: #9aa7bd #f8fafc;
+}
+
+::selection {
+  background: #dbeafe;
+  color: #0f172a;
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, Menu } from "lucide-react";
+import { Bell, LogOut, Menu, Search } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { navItems } from "@/lib/constants";
@@ -16,16 +16,17 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
   const items = navItems.filter((item) => (item.roles as readonly string[]).includes(profile.role));
 
   return (
-    <div className="min-h-screen bg-background text-slate-950">
+    <div className="min-h-screen bg-white text-slate-950">
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-40 w-72 border-r border-border bg-white px-4 py-5 shadow-soft transition-transform lg:translate-x-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="mb-8">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Adhunik</p>
-          <h2 className="mt-1 text-lg font-bold text-navy-900">MES Intelligence CRM</h2>
+        <div className="mb-8 rounded-2xl bg-navy-900 p-4 text-white shadow-lift">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-300">Adhunik</p>
+          <h2 className="mt-1 text-lg font-bold">MES Intelligence CRM</h2>
+          <p className="mt-2 text-xs text-navy-100">Tender command center</p>
         </div>
         <nav className="space-y-1">
           {items.map((item) => {
@@ -37,9 +38,9 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
                 href={item.href}
                 onClick={closeSidebar}
                 className={cn(
-                  "flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium text-slate-600",
-                  active && "bg-navy-900 text-white",
-                  !active && "hover:bg-slate-100 hover:text-navy-900"
+                  "flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-600 transition",
+                  active && "bg-navy-50 text-navy-900 ring-1 ring-navy-100",
+                  !active && "hover:bg-slate-50 hover:text-navy-900"
                 )}
               >
                 <Icon size={17} />
@@ -50,7 +51,7 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
         </nav>
       </aside>
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-white/95 px-4 backdrop-blur lg:px-8">
+        <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-4 border-b border-border bg-white/90 px-4 backdrop-blur lg:px-8">
           <div className="flex items-center gap-3">
             <Button variant="ghost" className="px-3 lg:hidden" onClick={toggleSidebar} aria-label="Open menu">
               <Menu size={20} />
@@ -60,14 +61,25 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
               <p className="text-xs text-slate-500">{profile.role}</p>
             </div>
           </div>
-          <form action={logoutAction}>
-            <Button variant="secondary">
-              <LogOut size={16} />
-              Logout
+          <div className="hidden flex-1 justify-center md:flex">
+            <label className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+              <input className="h-10 w-full rounded-full border border-border bg-slate-50 pl-10 pr-4 text-sm outline-none transition focus:border-navy-500 focus:bg-white focus:ring-4 focus:ring-navy-100" placeholder="Search tenders, contractors, GE, CWE" />
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" className="h-10 w-10 rounded-full px-0" aria-label="Notifications">
+              <Bell size={16} />
             </Button>
-          </form>
+            <form action={logoutAction}>
+              <Button variant="secondary">
+                <LogOut size={16} />
+                Logout
+              </Button>
+            </form>
+          </div>
         </header>
-        <main className="mx-auto w-full max-w-7xl px-4 py-6 lg:px-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1800px] px-4 py-6 lg:px-8">{children}</main>
       </div>
     </div>
   );
