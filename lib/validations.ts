@@ -1,12 +1,26 @@
 import { z } from "zod";
-import { leadStatuses, roles, sourceTypes } from "@/lib/constants";
+import { leadStatuses, roles, sourceTypes } from "./constants.ts";
+import { normalizeDateValue } from "./date-utils.ts";
 
 const nullableText = z.preprocess((value) => (value === "" ? undefined : value), z.string().optional().nullable());
+const nullableStringOrNumberText = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.union([z.string(), z.number()]).transform((value) => String(value)).optional().nullable()
+);
+const nullableDateText = z.preprocess(
+  (value) => (value === "" ? undefined : normalizeDateValue(value)),
+  z.string().optional().nullable()
+);
 const nullableUrl = z.preprocess((value) => (value === "" ? undefined : value), z.string().url().optional().nullable());
 const nullableEmail = z.preprocess((value) => (value === "" ? undefined : value), z.string().email().optional().nullable());
 const nullableNumber = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? undefined : value),
-  z.coerce.number().optional().nullable()
+  z
+    .union([z.string(), z.number()])
+    .transform((value) => Number(value))
+    .refine((value) => Number.isFinite(value), "Expected a valid number")
+    .optional()
+    .nullable()
 );
 
 export const loginSchema = z.object({
@@ -25,16 +39,16 @@ export const tenderSchema = z.object({
   organisation_chain: nullableText,
   ge: nullableText,
   cwe: nullableText,
-  tender_ref_no: nullableText,
+  tender_ref_no: nullableStringOrNumberText,
   tender_title: z.string().trim().min(1, "Tender Title is required"),
-  contract_date: nullableText,
-  bid_number: nullableText,
+  contract_date: nullableDateText,
+  bid_number: nullableStringOrNumberText,
   bidder_name: nullableText,
   currency: z.preprocess((value) => (value === "" || value === null || value === undefined ? "INR" : value), z.string()),
   awarded_value: nullableNumber,
-  contact_number_1: nullableText,
-  contact_number_2: nullableText,
-  contact_number_3: nullableText,
+  contact_number_1: nullableStringOrNumberText,
+  contact_number_2: nullableStringOrNumberText,
+  contact_number_3: nullableStringOrNumberText,
   address: nullableText,
   make: nullableText,
   email: nullableEmail,

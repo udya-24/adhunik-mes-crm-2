@@ -85,7 +85,7 @@ export type LeadAssignment = {
   assigned_by: string;
   assigned_date: string;
   remarks: string | null;
-  tender?: Pick<Tender, "tender_id" | "bidder_name" | "ge" | "cwe"> | null;
+  tender?: Pick<Tender, "tender_id" | "bidder_name" | "ge" | "cwe" | "contract_date"> | null;
   assignee?: Pick<Profile, "full_name" | "email" | "role"> | null;
   assigner?: Pick<Profile, "full_name" | "email" | "role"> | null;
 };

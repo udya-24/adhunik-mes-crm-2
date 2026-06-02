@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getCurrentProfile, requireRole } from "@/lib/auth";
-import { utcNowISOString } from "@/lib/date-utils";
+import { normalizeDateFields, utcNowISOString } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 import type { ManualTenderInsert } from "@/lib/types";
 import { assignmentSchema, followUpSchema, tenderSchema } from "@/lib/validations";
@@ -60,7 +60,10 @@ export async function createTenderAction(input: FormData | ManualTenderInsert) {
 
 export async function bulkImportTendersAction(rows: unknown[], fileName: string) {
   const profile = await requireRole(["ADMIN", "MANAGER"]);
-  const parsed = rows.map((row) => tenderSchema.parse({ ...(row as object), source_type: "EXCEL_UPLOAD" }));
+  const parsed = rows.map((row) => {
+    console.log("Excel row", row);
+    return tenderSchema.parse({ ...normalizeDateFields(row as Record<string, unknown>), source_type: "EXCEL_UPLOAD" });
+  });
   const supabase = await createClient();
   const tenderIds = parsed.map((row) => row.tender_id);
   const { data: existing } = await supabase.from("tenders").select("tender_id").in("tender_id", tenderIds);

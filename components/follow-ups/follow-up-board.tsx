@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { ContractDate } from "@/components/common/contract-date";
 import { DateTime } from "@/components/common/date-time";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -19,6 +20,7 @@ export function FollowUpBoard({ buckets }: { buckets: Record<string, any[]> }) {
               {rows.map((row) => (
                 <div key={row.id} className="rounded-xl border border-border bg-slate-50 p-3 text-sm">
                   <p className="font-semibold text-navy-900">{row.tender?.tender_id} - {row.tender?.bidder_name || "Unknown"}</p>
+                  <p className="mt-1 text-slate-600">Contract <ContractDate tender={row.tender} /></p>
                   <p className="mt-1 inline-flex items-center gap-1 text-slate-500"><CalendarClock size={14} /> <DateTime value={row.follow_up_date} /></p>
                   <p className="mt-2 text-slate-700">{row.remarks}</p>
                 </div>

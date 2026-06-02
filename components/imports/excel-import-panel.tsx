@@ -7,6 +7,7 @@ import { bulkImportTendersAction } from "@/app/actions/tenders";
 import { DateTime } from "@/components/common/date-time";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { formatDate, normalizeDateFields } from "@/lib/date-utils";
 
 const columnMap: Record<string, string> = {
   "Tender ID": "tender_id",
@@ -45,7 +46,7 @@ export function ExcelImportPanel({ history }: { history: any[] }) {
     const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
     setRows(
       rawRows.map((row) =>
-        Object.fromEntries(Object.entries(row).map(([key, value]) => [columnMap[key] ?? key, value]))
+        normalizeDateFields(Object.fromEntries(Object.entries(row).map(([key, value]) => [columnMap[key] ?? key, value])))
       )
     );
   }
@@ -84,7 +85,9 @@ export function ExcelImportPanel({ history }: { history: any[] }) {
               <tbody>
                 {rows.slice(0, 8).map((row, index) => (
                   <tr key={index} className="border-t border-border">
-                    {Object.keys(rows[0]).slice(0, 8).map((key) => <td className="px-3 py-2" key={key}>{String(row[key] ?? "")}</td>)}
+                    {Object.keys(rows[0]).slice(0, 8).map((key) => (
+                      <td className="px-3 py-2" key={key}>{formatPreviewValue(key, row[key])}</td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -105,4 +108,9 @@ export function ExcelImportPanel({ history }: { history: any[] }) {
       </div>
     </Card>
   );
+}
+
+function formatPreviewValue(key: string, value: unknown) {
+  if (key === "contract_date") return formatDate(typeof value === "string" ? value : undefined);
+  return String(value ?? "");
 }

@@ -15,8 +15,8 @@ export function AnalyticsCharts({ metrics, breakdowns }: { metrics: DashboardMet
         {Object.entries(breakdowns).map(([label, rows]) => (
           <Card key={label}>
             <div className="mb-4">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">{label}</p>
-              <h2 className="mt-1 font-bold text-navy-900">{label} Analysis</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">{formatBreakdownLabel(label)}</p>
+              <h2 className="mt-1 font-bold text-navy-900">{formatBreakdownLabel(label)} Analysis</h2>
             </div>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
@@ -35,4 +35,8 @@ export function AnalyticsCharts({ metrics, breakdowns }: { metrics: DashboardMet
       </div>
     </div>
   );
+}
+
+function formatBreakdownLabel(label: string) {
+  return label.replace(/([A-Z])/g, " $1").replace(/^./, (value) => value.toUpperCase());
 }

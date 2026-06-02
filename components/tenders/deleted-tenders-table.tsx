@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Loader2, RefreshCcw } from "lucide-react";
 import { restoreTenderAction } from "@/app/actions/tenders";
+import { ContractDate } from "@/components/common/contract-date";
 import { DateTime } from "@/components/common/date-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,9 @@ import { formatCurrency } from "@/lib/utils";
 type DeletedTenderRow = Tender & {
   deleted_by_profile?: Pick<Profile, "full_name" | "email"> | null;
 };
+
+const stickyDeletedActionsHeaderClass = "sticky right-0 z-30 min-w-[160px] bg-slate-50 px-3 py-3 text-right font-bold";
+const stickyDeletedActionsCellClass = "sticky right-0 z-20 min-w-[160px] bg-white px-3 py-2 text-right group-hover:bg-slate-50";
 
 export function DeletedTendersTable({ tenders }: { tenders: DeletedTenderRow[] }) {
   const [rows, setRows] = useState(tenders);
@@ -37,44 +41,49 @@ export function DeletedTendersTable({ tenders }: { tenders: DeletedTenderRow[] }
   return (
     <>
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-left text-xs">
+        <div className="relative w-full overflow-x-auto">
+          <table className="w-full min-w-[1180px] table-fixed text-left text-xs">
             <colgroup>
               <col className="w-[9rem]" />
               <col className="w-[18rem]" />
               <col className="w-[10rem]" />
               <col className="w-[9rem]" />
+              <col className="w-[9rem]" />
               <col className="w-[11rem]" />
               <col className="w-[12rem]" />
-              <col className="w-[7rem]" />
+              <col className="w-[160px] min-w-[160px]" />
             </colgroup>
             <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
               <tr>
-                {["Tender ID", "Tender Title", "Bidder", "Awarded", "Deleted By", "Deleted At", ""].map((head) => (
+                {["Tender ID", "Tender Title", "Bidder", "Contract", "Awarded", "Deleted By", "Deleted At"].map((head) => (
                   <th key={head} className="px-3 py-3 font-bold">{head}</th>
                 ))}
+                <th className={stickyDeletedActionsHeaderClass}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((tender) => (
-                <tr key={tender.id} className="border-t border-border align-middle hover:bg-slate-50">
+                <tr key={tender.id} className="group border-t border-border align-middle hover:bg-slate-50">
                   <td className="px-3 py-2 font-semibold text-navy-900">{tender.tender_id}</td>
                   <td className="px-3 py-2 text-slate-700">{tender.tender_title || "-"}</td>
                   <td className="px-3 py-2 text-slate-700">{tender.bidder_name || "-"}</td>
+                  <td className="px-3 py-2 text-slate-700"><ContractDate tender={tender} /></td>
                   <td className="px-3 py-2 font-semibold text-slate-900">{formatCurrency(tender.awarded_value)}</td>
                   <td className="px-3 py-2 text-slate-700">{tender.deleted_by_profile?.full_name || tender.deleted_by_profile?.email || "-"}</td>
                   <td className="px-3 py-2 text-slate-700"><DateTime value={tender.deleted_at} /></td>
-                  <td className="px-3 py-2 text-right">
-                    <Button variant="secondary" className="h-8 px-3" onClick={() => setRestoreTarget(tender)}>
-                      <RefreshCcw size={15} />
-                      Restore
-                    </Button>
+                  <td className={stickyDeletedActionsCellClass}>
+                    <div className="flex justify-end gap-2 whitespace-nowrap">
+                      <Button variant="secondary" className="h-8 px-3" onClick={() => setRestoreTarget(tender)}>
+                        <RefreshCcw size={15} />
+                        Restore
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
               {!rows.length && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-10 text-center text-slate-600">
+                  <td colSpan={8} className="px-3 py-10 text-center text-slate-600">
                     No deleted tenders.
                   </td>
                 </tr>

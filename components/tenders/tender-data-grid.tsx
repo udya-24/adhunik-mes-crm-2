@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, Phone, Search, Send, Trash2, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { assignLeadAction, deleteTenderAction, updateLeadStatusAction } from "@/app/actions/tenders";
+import { ContractDate } from "@/components/common/contract-date";
 import { DateTime } from "@/components/common/date-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,11 +12,19 @@ import { Card } from "@/components/ui/card";
 import { inputClass } from "@/components/ui/field";
 import { useTenders } from "@/hooks/use-tenders";
 import { leadStatuses, sourceTypes } from "@/lib/constants";
+import { formatDate } from "@/lib/date-utils";
 import { invalidateTenderQueries } from "@/lib/queries/tenders";
 import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/client";
 import type { LeadActivity, LeadAssignment, Profile, Tender, TenderFollowUp } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
+
+const stickyStatusHeaderClass = "sticky right-[300px] z-30 min-w-[7rem] bg-slate-50 px-2 py-2 font-bold";
+const stickySourceHeaderClass = "sticky right-[160px] z-30 min-w-[140px] bg-slate-50 px-2 py-2 font-bold";
+const stickyActionsHeaderClass = "sticky right-0 z-30 min-w-[160px] bg-slate-50 px-2 py-2 text-right font-bold";
+const stickyStatusCellClass = "sticky right-[300px] z-20 min-w-[7rem] bg-white px-2 py-1.5 group-hover:bg-slate-50";
+const stickySourceCellClass = "sticky right-[160px] z-20 min-w-[140px] bg-white px-2 py-1.5 group-hover:bg-slate-50";
+const stickyActionsCellClass = "sticky right-0 z-20 min-w-[160px] bg-white px-2 py-1.5 text-right group-hover:bg-slate-50";
 
 export function TenderDataGrid({
   users,
@@ -38,7 +47,22 @@ export function TenderDataGrid({
   const [openTender, setOpenTender] = useState<Tender | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Tender | null>(null);
   const [deleteError, setDeleteError] = useState("");
-  const tableColumnCount = 12;
+  const tableColumnCount = 13;
+  const tableHeaders = [
+    { label: "Tender ID", className: "px-2 py-2 font-bold" },
+    { label: "Tender Title", className: "px-2 py-2 font-bold" },
+    { label: "GE", className: "px-2 py-2 font-bold" },
+    { label: "CWE", className: "px-2 py-2 font-bold" },
+    { label: "Bidder Name", className: "px-2 py-2 font-bold" },
+    { label: "Contact", className: "px-2 py-2 font-bold" },
+    { label: "Contract", className: "px-2 py-2 font-bold" },
+    { label: "Awarded Value", className: "px-2 py-2 font-bold" },
+    { label: "Our Value", className: "px-2 py-2 font-bold" },
+    { label: "Assigned To", className: "px-2 py-2 font-bold" },
+    { label: "Status", className: stickyStatusHeaderClass },
+    { label: "Source", className: stickySourceHeaderClass },
+    { label: "Actions", className: stickyActionsHeaderClass }
+  ];
 
   const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
 
@@ -58,9 +82,20 @@ export function TenderDataGrid({
 
   function exportCsv() {
     const csv = [
-      ["Tender ID", "GE", "CWE", "Bidder Name", "Awarded Value", "Assigned To", "Status", "Source Type"].join(","),
+      ["Tender ID", "GE", "CWE", "Bidder Name", "Contract Date", "Awarded Value", "Our Value", "Assigned To", "Status", "Source Type"].join(","),
       ...filtered.map((tender) =>
-        [tender.tender_id, tender.ge, tender.cwe, tender.bidder_name, tender.awarded_value, assignedToLabel(tender, userById), tender.lead_status, tender.source_type]
+        [
+          tender.tender_id,
+          tender.ge,
+          tender.cwe,
+          tender.bidder_name,
+          formatDate(tender.contract_date),
+          formatCurrencyDisplay(tender.awarded_value),
+          formatCurrencyDisplay(tender.our_value),
+          assignedToLabel(tender, userById),
+          tender.lead_status,
+          sourceTypeLabel(tender.source_type)
+        ]
           .map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`)
           .join(",")
       )
@@ -126,26 +161,27 @@ export function TenderDataGrid({
           {error instanceof Error ? error.message : "Tender records could not be loaded."}
         </div>
       )}
-      <div className="overflow-x-auto table-scroll 2xl:overflow-x-visible">
-        <table className="w-full table-fixed text-left text-xs">
+      <div className="relative w-full overflow-x-auto table-scroll">
+        <table className="w-full min-w-[1960px] table-fixed text-left text-xs">
           <colgroup>
             <col className="w-[8.5rem]" />
-            <col className="w-[13rem]" />
+            <col className="w-[350px] min-w-[350px]" />
             <col className="w-[6.5rem]" />
             <col className="w-[6.5rem]" />
-            <col className="w-[12rem]" />
-            <col className="w-[8rem]" />
+            <col className="w-[220px] min-w-[220px]" />
+            <col className="w-[180px] min-w-[180px]" />
             <col className="w-[6.5rem]" />
-            <col className="w-[7rem]" />
-            <col className="w-[7rem]" />
-            <col className="w-[7rem]" />
-            <col className="w-[6rem]" />
-            <col className="w-[4.75rem]" />
+            <col className="w-[140px] min-w-[140px]" />
+            <col className="w-[140px] min-w-[140px]" />
+            <col className="w-[11rem]" />
+            <col className="w-[7rem] min-w-[7rem]" />
+            <col className="w-[140px] min-w-[140px]" />
+            <col className="w-[160px] min-w-[160px]" />
           </colgroup>
           <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase text-slate-500 shadow-sm">
             <tr>
-              {["Tender ID", "Tender Title", "GE", "CWE", "Bidder Name", "Contact", "Contract", "Awarded", "Assigned", "Status", "Source", ""].map((head) => (
-                <th className="px-2 py-2 font-bold" key={head}>{head}</th>
+              {tableHeaders.map((head) => (
+                <th className={head.className} key={head.label}>{head.label}</th>
               ))}
             </tr>
           </thead>
@@ -168,7 +204,7 @@ export function TenderDataGrid({
               </tr>
             )}
             {filtered.map((tender) => (
-              <tr key={tender.id} className="border-t border-border align-middle transition hover:bg-slate-50">
+              <tr key={tender.id} className="group border-t border-border align-middle transition hover:bg-slate-50">
                 <td className="px-2 py-1.5 font-semibold text-navy-900" title={tender.tender_id}>
                   <span className="block truncate">{tender.tender_id}</span>
                 </td>
@@ -187,22 +223,28 @@ export function TenderDataGrid({
                 <td className="px-2 py-1.5" title={[tender.contact_number_1, tender.email].filter(Boolean).join(" | ")}>
                   <ContactPreview tender={tender} />
                 </td>
-                <td className="px-2 py-1.5 text-slate-700" title={tender.contract_date || ""}><DateTime value={tender.contract_date} variant="date" /></td>
-                <td className="px-2 py-1.5 font-semibold text-slate-900">{formatCurrency(tender.awarded_value)}</td>
+                <td className="px-2 py-1.5 text-slate-700" title={tender.contract_date || ""}><ContractDate tender={tender} /></td>
+                <td className="px-2 py-1.5 font-semibold text-slate-900">{formatCurrencyDisplay(tender.awarded_value)}</td>
+                <td className="px-2 py-1.5 font-semibold text-slate-900">{formatCurrencyDisplay(tender.our_value)}</td>
                 <td className="px-2 py-1.5">
                   <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} />
                 </td>
-                <td className="px-2 py-1.5">
+                <td className={stickyStatusCellClass}>
                   <StatusBadge status={tender.lead_status} />
                 </td>
-                <td className="px-2 py-1.5">
+                <td className={stickySourceCellClass}>
                   <SourceTypeBadge sourceType={tender.source_type} />
                 </td>
-                <td className="px-2 py-1.5 text-right">
-                  <div className="flex justify-end gap-1">
+                <td className={stickyActionsCellClass}>
+                  <div className="flex justify-end gap-2 whitespace-nowrap">
                     <Button variant="secondary" className="h-7 w-7 rounded-md px-0" title="View details" onClick={() => setOpenTender(tender)}>
                       <Eye size={15} />
                     </Button>
+                    {canAssign && (
+                      <Button variant="secondary" className="h-7 w-7 rounded-md px-0" title="Assign lead" onClick={() => setOpenTender(tender)}>
+                        <Send size={14} />
+                      </Button>
+                    )}
                     {canDelete && (
                       <Button variant="danger" className="h-7 w-7 rounded-md px-0" title="Delete tender" onClick={() => setDeleteTarget(tender)}>
                         <Trash2 size={14} />
@@ -307,14 +349,36 @@ function assignedToLabel(tender: Tender, userById: Map<string, Profile>) {
   return formatProfileDisplayName(user);
 }
 
+function formatCurrencyDisplay(value?: number | null) {
+  if (value === null || value === undefined) return "-";
+  return formatCurrency(value);
+}
+
+function sourceTypeLabel(sourceType: Tender["source_type"]) {
+  return sourceType === "MANUAL_ENTRY" ? "Manual" : "Excel";
+}
+
 function SourceTypeBadge({ sourceType }: { sourceType: Tender["source_type"] }) {
-  return <Badge tone={sourceType === "MANUAL_ENTRY" ? "amber" : "blue"}>{sourceType}</Badge>;
+  return (
+    <Badge
+      className={
+        sourceType === "MANUAL_ENTRY"
+          ? "min-w-[110px] justify-center whitespace-nowrap bg-[#FFF7E6] text-[#D97706] ring-[#FDE7BF]"
+          : "min-w-[110px] justify-center whitespace-nowrap bg-[#EFF6FF] text-[#2563EB] ring-[#BFDBFE]"
+      }
+    >
+      {sourceTypeLabel(sourceType)}
+    </Badge>
+  );
 }
 
 function AssignmentBadge({ tender, userById, currentUserId }: { tender: Tender; userById: Map<string, Profile>; currentUserId: string | null }) {
   if (!tender.assigned_to) return <Badge tone="orange">Unassigned</Badge>;
-  if (currentUserId && tender.assigned_to === currentUserId) return <Badge tone="blue">My Lead</Badge>;
-  return <Badge tone="green" className="max-w-full truncate">{assignedToLabel(tender, userById)}</Badge>;
+  return (
+    <Badge tone={currentUserId && tender.assigned_to === currentUserId ? "blue" : "green"} className="max-w-full whitespace-normal text-left leading-4">
+      {assignedToLabel(tender, userById)}
+    </Badge>
+  );
 }
 
 function StatusBadge({ status }: { status: Tender["lead_status"] }) {
@@ -418,7 +482,7 @@ function TenderDetailsDrawer({
             <div className="grid gap-3 sm:grid-cols-3">
               <MetricTile label="Awarded Value" value={formatCurrency(tender.awarded_value)} />
               <MetricTile label="Our Value" value={formatCurrency(tender.our_value)} />
-              <MetricTile label="Contract Date" value={<DateTime value={tender.contract_date} variant="date" />} />
+              <MetricTile label="Contract Date" value={<ContractDate tender={tender} />} />
             </div>
 
             {canAssign && (

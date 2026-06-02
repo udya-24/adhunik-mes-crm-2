@@ -1,3 +1,4 @@
+import { ContractDate } from "@/components/common/contract-date";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { Tender } from "@/lib/types";
@@ -24,6 +25,7 @@ export function TenderSnapshot({ tenders }: { tenders: Tender[] }) {
               <th className="px-3 py-3">GE</th>
               <th className="px-3 py-3">CWE</th>
               <th className="px-3 py-3">Bidder</th>
+              <th className="px-3 py-3">Contract</th>
               <th className="px-3 py-3">Value</th>
               <th className="px-3 py-3">Status</th>
             </tr>
@@ -31,7 +33,7 @@ export function TenderSnapshot({ tenders }: { tenders: Tender[] }) {
           <tbody>
             {!tenders.length && (
               <tr>
-                <td className="px-3 py-8 text-center text-sm text-slate-500" colSpan={6}>
+                <td className="px-3 py-8 text-center text-sm text-slate-500" colSpan={7}>
                   No data available
                 </td>
               </tr>
@@ -42,6 +44,7 @@ export function TenderSnapshot({ tenders }: { tenders: Tender[] }) {
                 <td className="px-3 py-3">{tender.ge || "-"}</td>
                 <td className="px-3 py-3">{tender.cwe || "-"}</td>
                 <td className="px-3 py-3">{tender.bidder_name || "-"}</td>
+                <td className="px-3 py-3"><ContractDate tender={tender} /></td>
                 <td className="px-3 py-3">{formatCurrency(tender.awarded_value)}</td>
                 <td className="px-3 py-3"><Badge tone={statusTone(tender.lead_status)}>{tender.lead_status}</Badge></td>
               </tr>

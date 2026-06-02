@@ -1,6 +1,6 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { getCurrentProfile, requireRole } from "@/lib/auth";
-import { getISTDayBoundsISO } from "@/lib/date-utils";
+import { formatDate, getISTDayBoundsISO } from "@/lib/date-utils";
 import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardMetrics, Profile, Tender } from "@/lib/types";
@@ -171,7 +171,7 @@ export async function getFollowUpBuckets() {
   const { start: todayStart, end: todayEnd } = getISTDayBoundsISO();
   let query = supabase
     .from("follow_ups")
-    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,is_deleted)")
+    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,contract_date,is_deleted)")
     .eq("tender.is_deleted", false)
     .order("follow_up_date", { ascending: true })
     .limit(200);
@@ -211,6 +211,7 @@ export async function getAnalyticsBreakdowns() {
   return {
     ge: groupByValue((tender) => tender.ge),
     cwe: groupByValue((tender) => tender.cwe),
+    contractDate: groupByValue((tender) => formatDate(tender.contract_date)),
     bidder: groupByValue((tender) => tender.bidder_name),
     user: groupByValue((tender) => (tender.assigned_to ? assignedTenderUserName(tender) : "Unassigned"))
   };
