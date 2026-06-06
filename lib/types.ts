@@ -33,8 +33,11 @@ export type Tender = {
   address: string | null;
   make: string | null;
   email: string | null;
+  boq_attachment_name: string | null;
   boq_attachment_url: string | null;
+  aoc_attachment_name: string | null;
   aoc_attachment_url: string | null;
+  tender_document_attachment_name: string | null;
   tender_document_url: string | null;
   our_value: number | null;
   source_type: SourceType;
@@ -73,10 +76,30 @@ export type ManualTenderInsert = {
   address?: string | null;
   make?: string | null;
   email?: string | null;
+  boq_attachment_name?: string | null;
   boq_attachment_url?: string | null;
+  aoc_attachment_name?: string | null;
   aoc_attachment_url?: string | null;
+  tender_document_attachment_name?: string | null;
   tender_document_url?: string | null;
   our_value?: number | null;
+};
+
+export type TenderUpdateInput = ManualTenderInsert & {
+  id: string;
+  assigned_to?: string | null;
+};
+
+export type AuditLog = {
+  id: string;
+  table_name?: string | null;
+  record_id?: string | null;
+  user_id: string | null;
+  action?: string | null;
+  old_data: Record<string, unknown> | null;
+  new_data: Record<string, unknown> | null;
+  created_at: string;
+  user_name?: string | null;
 };
 
 export type LeadAssignment = {

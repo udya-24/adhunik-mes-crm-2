@@ -13,17 +13,19 @@ import { createClient } from "@/lib/supabase/client";
 import type { ManualTenderInsert } from "@/lib/types";
 
 type AttachmentKey = "boq_attachment_url" | "aoc_attachment_url" | "tender_document_url";
+type AttachmentNameKey = "boq_attachment_name" | "aoc_attachment_name" | "tender_document_attachment_name";
 
 type AttachmentConfig = {
   key: AttachmentKey;
+  nameKey: AttachmentNameKey;
   label: string;
   bucket: "boq" | "aoc" | "tender-documents";
 };
 
 const attachmentFields: AttachmentConfig[] = [
-  { key: "boq_attachment_url", label: "BOQ Attachment", bucket: "boq" },
-  { key: "aoc_attachment_url", label: "AOC Attachment", bucket: "aoc" },
-  { key: "tender_document_url", label: "Tender Document Attachment", bucket: "tender-documents" }
+  { key: "boq_attachment_url", nameKey: "boq_attachment_name", label: "BOQ Attachment", bucket: "boq" },
+  { key: "aoc_attachment_url", nameKey: "aoc_attachment_name", label: "AOC Attachment", bucket: "aoc" },
+  { key: "tender_document_url", nameKey: "tender_document_attachment_name", label: "Tender Document Attachment", bucket: "tender-documents" }
 ];
 
 const textFields = [
@@ -63,6 +65,7 @@ export function ManualTenderForm() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<Partial<Record<AttachmentKey, boolean>>>({});
   const [attachments, setAttachments] = useState<Partial<Record<AttachmentKey, string>>>({});
+  const [attachmentNames, setAttachmentNames] = useState<Partial<Record<AttachmentNameKey, string>>>({});
 
   const isBusy = useMemo(() => saving || Object.values(uploading).some(Boolean), [saving, uploading]);
 
@@ -85,6 +88,7 @@ export function ManualTenderForm() {
 
     const { data } = supabase.storage.from(config.bucket).getPublicUrl(path);
     setAttachments((current) => ({ ...current, [config.key]: data.publicUrl }));
+    setAttachmentNames((current) => ({ ...current, [config.nameKey]: file.name }));
     return data.publicUrl;
   }
 
@@ -105,11 +109,13 @@ export function ManualTenderForm() {
     setSaving(true);
     try {
       const uploadedUrls: Partial<Record<AttachmentKey, string>> = { ...attachments };
+      const uploadedNames: Partial<Record<AttachmentNameKey, string>> = { ...attachmentNames };
 
       for (const config of attachmentFields) {
         const file = formData.get(config.key);
         if (file instanceof File && file.size > 0) {
           uploadedUrls[config.key] = await uploadTenderFile(config, file, tenderId);
+          uploadedNames[config.nameKey] = file.name;
         }
       }
 
@@ -132,8 +138,11 @@ export function ManualTenderForm() {
         make: textValue(formData, "make"),
         email: textValue(formData, "email"),
         our_value: numberValue(formData, "our_value"),
+        boq_attachment_name: uploadedNames.boq_attachment_name ?? null,
         boq_attachment_url: uploadedUrls.boq_attachment_url ?? null,
+        aoc_attachment_name: uploadedNames.aoc_attachment_name ?? null,
         aoc_attachment_url: uploadedUrls.aoc_attachment_url ?? null,
+        tender_document_attachment_name: uploadedNames.tender_document_attachment_name ?? null,
         tender_document_url: uploadedUrls.tender_document_url ?? null
       };
 
@@ -141,6 +150,7 @@ export function ManualTenderForm() {
       await invalidateTenderQueries(queryClient);
       setToast({ type: "success", message: "Manual tender entry saved successfully." });
       setAttachments({});
+      setAttachmentNames({});
       form.reset();
       router.refresh();
     } catch (error) {

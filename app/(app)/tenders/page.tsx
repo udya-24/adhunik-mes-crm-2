@@ -13,7 +13,7 @@ export default async function TendersPage() {
   return (
     <div className="space-y-5">
       <PageHeader eyebrow="Pipeline" title="Tenders" description="Search, filter, assign, inspect, and export MES tender records." />
-      <TenderDataGrid users={users} canAssign={canAssign} canDelete={canDelete} currentUserId={profile?.id ?? null} />
+      <TenderDataGrid users={users} canAssign={canAssign} canDelete={canDelete} currentUserId={profile?.id ?? null} currentUserRole={profile?.role ?? null} />
     </div>
   );
 }

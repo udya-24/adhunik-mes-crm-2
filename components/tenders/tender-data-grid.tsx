@@ -1,42 +1,75 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, Phone, Search, Send, Trash2, UserRound, X } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { assignLeadAction, deleteTenderAction, updateLeadStatusAction } from "@/app/actions/tenders";
+import { assignLeadAction, deleteTenderAction, getTenderHistoryAction, updateLeadStatusAction, updateTenderAction } from "@/app/actions/tenders";
 import { ContractDate } from "@/components/common/contract-date";
 import { DateTime } from "@/components/common/date-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { inputClass } from "@/components/ui/field";
+import { Field, inputClass } from "@/components/ui/field";
 import { useTenders } from "@/hooks/use-tenders";
 import { leadStatuses, sourceTypes } from "@/lib/constants";
 import { formatDate } from "@/lib/date-utils";
 import { invalidateTenderQueries } from "@/lib/queries/tenders";
 import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/client";
-import type { LeadActivity, LeadAssignment, Profile, Tender, TenderFollowUp } from "@/lib/types";
+import type { AuditLog, LeadActivity, LeadAssignment, Profile, Role, Tender, TenderFollowUp, TenderUpdateInput } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
-const stickyStatusHeaderClass = "sticky right-[300px] z-30 min-w-[7rem] bg-slate-50 px-2 py-2 font-bold";
-const stickySourceHeaderClass = "sticky right-[160px] z-30 min-w-[140px] bg-slate-50 px-2 py-2 font-bold";
-const stickyActionsHeaderClass = "sticky right-0 z-30 min-w-[160px] bg-slate-50 px-2 py-2 text-right font-bold";
-const stickyStatusCellClass = "sticky right-[300px] z-20 min-w-[7rem] bg-white px-2 py-1.5 group-hover:bg-slate-50";
-const stickySourceCellClass = "sticky right-[160px] z-20 min-w-[140px] bg-white px-2 py-1.5 group-hover:bg-slate-50";
-const stickyActionsCellClass = "sticky right-0 z-20 min-w-[160px] bg-white px-2 py-1.5 text-right group-hover:bg-slate-50";
+const stickyStatusHeaderClass = "sticky right-[340px] z-30 min-w-[7rem] bg-slate-50 px-2 py-2 font-bold";
+const stickySourceHeaderClass = "sticky right-[200px] z-30 min-w-[140px] bg-slate-50 px-2 py-2 font-bold";
+const stickyActionsHeaderClass = "sticky right-0 z-30 min-w-[200px] bg-slate-50 px-2 py-2 text-right font-bold";
+const stickyStatusCellClass = "sticky right-[340px] z-20 min-w-[7rem] bg-white px-2 py-1.5 group-hover:bg-slate-50";
+const stickySourceCellClass = "sticky right-[200px] z-20 min-w-[140px] bg-white px-2 py-1.5 group-hover:bg-slate-50";
+const stickyActionsCellClass = "sticky right-0 z-20 min-w-[200px] bg-white px-2 py-1.5 text-right group-hover:bg-slate-50";
+
+type AttachmentKey = "boq_attachment_url" | "aoc_attachment_url" | "tender_document_url";
+type AttachmentNameKey = "boq_attachment_name" | "aoc_attachment_name" | "tender_document_attachment_name";
+type AttachmentConfig = {
+  key: AttachmentKey;
+  nameKey: AttachmentNameKey;
+  label: string;
+  bucket: "boq" | "aoc" | "tender-documents";
+};
+
+const attachmentFields: AttachmentConfig[] = [
+  { key: "boq_attachment_url", nameKey: "boq_attachment_name", label: "BOQ", bucket: "boq" },
+  { key: "aoc_attachment_url", nameKey: "aoc_attachment_name", label: "AOC", bucket: "aoc" },
+  { key: "tender_document_url", nameKey: "tender_document_attachment_name", label: "Tender Document", bucket: "tender-documents" }
+];
+
+const editTextFields = [
+  ["organisation_chain", "Organisation Chain"],
+  ["ge", "GE"],
+  ["cwe", "CWE"],
+  ["tender_ref_no", "Tender Ref No"],
+  ["bid_number", "Bid Number"],
+  ["bidder_name", "Bidder Name"],
+  ["make", "Make"],
+  ["email", "Email"],
+  ["contact_number_1", "Contact Number 1"],
+  ["contact_number_2", "Contact Number 2"],
+  ["contact_number_3", "Contact Number 3"]
+] as const;
+
+type TenderDataGridProps = {
+  users: Profile[];
+  canAssign: boolean;
+  canDelete: boolean;
+  currentUserId: string | null;
+  currentUserRole?: Role | null;
+};
 
 export function TenderDataGrid({
   users,
   canAssign,
   canDelete,
-  currentUserId
-}: {
-  users: Profile[];
-  canAssign: boolean;
-  canDelete: boolean;
-  currentUserId: string | null;
-}) {
+  currentUserId,
+  currentUserRole
+}: TenderDataGridProps) {
   const { data: tenders = [], error, isLoading, isFetching } = useTenders();
   const queryClient = useQueryClient();
   const [isDeleting, startDeleteTransition] = useTransition();
@@ -45,6 +78,7 @@ export function TenderDataGrid({
   const [source, setSource] = useState("");
   const [assignment, setAssignment] = useState("");
   const [openTender, setOpenTender] = useState<Tender | null>(null);
+  const [editTarget, setEditTarget] = useState<Tender | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Tender | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const tableColumnCount = 13;
@@ -82,7 +116,24 @@ export function TenderDataGrid({
 
   function exportCsv() {
     const csv = [
-      ["Tender ID", "GE", "CWE", "Bidder Name", "Contract Date", "Awarded Value", "Our Value", "Assigned To", "Status", "Source Type"].join(","),
+      [
+        "Tender ID",
+        "GE",
+        "CWE",
+        "Bidder Name",
+        "Contract Date",
+        "Awarded Value",
+        "Our Value",
+        "BOQ Attachment Name",
+        "BOQ Attachment URL",
+        "AOC Attachment Name",
+        "AOC Attachment URL",
+        "Tender Document Attachment Name",
+        "Tender Document Attachment URL",
+        "Assigned To",
+        "Status",
+        "Source Type"
+      ].join(","),
       ...filtered.map((tender) =>
         [
           tender.tender_id,
@@ -92,6 +143,12 @@ export function TenderDataGrid({
           formatDate(tender.contract_date),
           formatCurrencyDisplay(tender.awarded_value),
           formatCurrencyDisplay(tender.our_value),
+          tender.boq_attachment_name,
+          tender.boq_attachment_url,
+          tender.aoc_attachment_name,
+          tender.aoc_attachment_url,
+          tender.tender_document_attachment_name,
+          tender.tender_document_url,
           assignedToLabel(tender, userById),
           tender.lead_status,
           sourceTypeLabel(tender.source_type)
@@ -176,7 +233,7 @@ export function TenderDataGrid({
             <col className="w-[11rem]" />
             <col className="w-[7rem] min-w-[7rem]" />
             <col className="w-[140px] min-w-[140px]" />
-            <col className="w-[160px] min-w-[160px]" />
+            <col className="w-[200px] min-w-[200px]" />
           </colgroup>
           <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase text-slate-500 shadow-sm">
             <tr>
@@ -240,6 +297,11 @@ export function TenderDataGrid({
                     <Button variant="secondary" className="h-7 w-7 rounded-md px-0" title="View details" onClick={() => setOpenTender(tender)}>
                       <Eye size={15} />
                     </Button>
+                    {canEditTenderClient(tender, currentUserId, currentUserRole ?? null) && (
+                      <Button variant="secondary" className="h-7 w-7 rounded-md px-0" title="Edit tender" onClick={() => setEditTarget(tender)}>
+                        <Pencil size={14} />
+                      </Button>
+                    )}
                     {canAssign && (
                       <Button variant="secondary" className="h-7 w-7 rounded-md px-0" title="Assign lead" onClick={() => setOpenTender(tender)}>
                         <Send size={14} />
@@ -270,9 +332,26 @@ export function TenderDataGrid({
       }}
       onConfirm={confirmDelete}
     />
+    <TenderEditModal
+      tender={editTarget}
+      users={users}
+      canReassign={canAssign}
+      onClose={() => setEditTarget(null)}
+      onSaved={async (updatedTender) => {
+        setEditTarget(null);
+        setOpenTender((current) => (current?.id === updatedTender.id ? { ...current, ...updatedTender } : current));
+        await invalidateTenderQueries(queryClient);
+        await queryClient.invalidateQueries({ queryKey: ["tender-details"] });
+      }}
+    />
     <TenderDetailsDrawer tender={openTender} userById={userById} users={users} canAssign={canAssign} currentUserId={currentUserId} onClose={() => setOpenTender(null)} />
     </>
   );
+}
+
+function canEditTenderClient(tender: Tender, currentUserId: string | null, role: Role | null) {
+  if (!currentUserId || !role) return false;
+  return role === "ADMIN" || role === "MANAGER" || tender.uploaded_by === currentUserId || tender.assigned_to === currentUserId;
 }
 
 function ConfirmDeleteModal({
@@ -319,6 +398,248 @@ function ConfirmDeleteModal({
   );
 }
 
+function TenderEditModal({
+  tender,
+  users,
+  canReassign,
+  onClose,
+  onSaved
+}: {
+  tender: Tender | null;
+  users: Profile[];
+  canReassign: boolean;
+  onClose: () => void;
+  onSaved: (updatedTender: Tender) => Promise<void>;
+}) {
+  const [formState, setFormState] = useState<TenderUpdateInput | null>(null);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState<Partial<Record<AttachmentKey, boolean>>>({});
+
+  useEffect(() => {
+    if (!tender) {
+      setFormState(null);
+      setError("");
+      setUploading({});
+      return;
+    }
+
+    setFormState({
+      id: tender.id,
+      tender_id: tender.tender_id,
+      organisation_chain: tender.organisation_chain,
+      ge: tender.ge,
+      cwe: tender.cwe,
+      tender_ref_no: tender.tender_ref_no,
+      tender_title: tender.tender_title || "",
+      contract_date: tender.contract_date,
+      bid_number: tender.bid_number,
+      bidder_name: tender.bidder_name,
+      currency: tender.currency || "INR",
+      awarded_value: tender.awarded_value,
+      contact_number_1: tender.contact_number_1,
+      contact_number_2: tender.contact_number_2,
+      contact_number_3: tender.contact_number_3,
+      address: tender.address,
+      make: tender.make,
+      email: tender.email,
+      our_value: tender.our_value,
+      boq_attachment_name: tender.boq_attachment_name,
+      boq_attachment_url: tender.boq_attachment_url,
+      aoc_attachment_name: tender.aoc_attachment_name,
+      aoc_attachment_url: tender.aoc_attachment_url,
+      tender_document_attachment_name: tender.tender_document_attachment_name,
+      tender_document_url: tender.tender_document_url,
+      assigned_to: tender.assigned_to
+    });
+    setError("");
+  }, [tender]);
+
+  if (!tender || !formState) return null;
+
+  function setField<K extends keyof TenderUpdateInput>(key: K, value: TenderUpdateInput[K]) {
+    setFormState((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  async function uploadReplacement(config: AttachmentConfig, file: File) {
+    const currentFormState = formState;
+    if (!currentFormState) return;
+    const supabase = createClient();
+    const path = buildStoragePath(currentFormState.tender_id, file);
+    setUploading((current) => ({ ...current, [config.key]: true }));
+
+    const { error: uploadError } = await supabase.storage.from(config.bucket).upload(path, file, {
+      cacheControl: "3600",
+      upsert: false
+    });
+
+    setUploading((current) => ({ ...current, [config.key]: false }));
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { data } = supabase.storage.from(config.bucket).getPublicUrl(path);
+    setField(config.key, data.publicUrl);
+    setField(config.nameKey, file.name);
+  }
+
+  async function handleFile(config: AttachmentConfig, file: File | null) {
+    if (!file) return;
+    setError("");
+    try {
+      await uploadReplacement(config, file);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Attachment could not be uploaded.");
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const currentFormState = formState;
+    if (!currentFormState) return;
+    setError("");
+    setSaving(true);
+    try {
+      const result = await updateTenderAction(currentFormState);
+      if (result.tender) {
+        await onSaved(result.tender);
+      } else {
+        onClose();
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Tender could not be updated.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const isBusy = saving || Object.values(uploading).some(Boolean);
+
+  return (
+    <div className="fixed inset-0 z-[65] grid place-items-center bg-slate-950/40 px-4">
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-lg border border-border bg-white p-5 shadow-lift">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Edit Tender</p>
+            <h2 className="mt-1 text-xl font-bold text-navy-900">{tender.tender_id}</h2>
+          </div>
+          <Button variant="ghost" className="h-9 w-9 rounded-full px-0" onClick={onClose} disabled={isBusy} aria-label="Close edit modal">
+            <X size={18} />
+          </Button>
+        </div>
+
+        {error && <p className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
+
+        <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+          <Field label="Tender ID">
+            <input required className={inputClass} value={formState.tender_id} onChange={(event) => setField("tender_id", event.target.value)} />
+          </Field>
+          <Field label="Tender Title">
+            <input required className={inputClass} value={formState.tender_title} onChange={(event) => setField("tender_title", event.target.value)} />
+          </Field>
+
+          {editTextFields.map(([name, label]) => (
+            <Field key={name} label={label}>
+              <input
+                type={name === "email" ? "email" : "text"}
+                className={inputClass}
+                value={(formState[name] as string | null) ?? ""}
+                onChange={(event) => setField(name, event.target.value || null)}
+              />
+            </Field>
+          ))}
+
+          <Field label="Contract Date">
+            <input type="date" className={inputClass} value={formState.contract_date ?? ""} onChange={(event) => setField("contract_date", event.target.value || null)} />
+          </Field>
+          <Field label="Currency">
+            <input className={inputClass} value={formState.currency ?? "INR"} onChange={(event) => setField("currency", event.target.value || "INR")} />
+          </Field>
+          <Field label="Awarded Value">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className={inputClass}
+              value={formState.awarded_value ?? ""}
+              onChange={(event) => setField("awarded_value", event.target.value ? Number(event.target.value) : null)}
+            />
+          </Field>
+          <Field label="Our Value">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className={inputClass}
+              value={formState.our_value ?? ""}
+              onChange={(event) => setField("our_value", event.target.value ? Number(event.target.value) : null)}
+            />
+          </Field>
+          {canReassign && (
+            <Field label="Assigned To">
+              <select className={inputClass} value={formState.assigned_to ?? ""} onChange={(event) => setField("assigned_to", event.target.value || null)}>
+                <option value="">Unassigned</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <Field label="Address">
+            <textarea className={`${inputClass} h-24 py-2`} value={formState.address ?? ""} onChange={(event) => setField("address", event.target.value || null)} />
+          </Field>
+
+          <div className="grid gap-3 sm:col-span-2 lg:grid-cols-3">
+            {attachmentFields.map((config) => {
+              const url = formState[config.key];
+              const filename = formState[config.nameKey] || attachmentNameFromUrl(url);
+              return (
+                <div key={config.key} className="rounded-lg border border-border bg-slate-50 p-3">
+                  <p className="text-sm font-bold text-navy-900">{config.label}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500">{filename || "No file uploaded"}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {url && (
+                      <a href={url} target="_blank" className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-xs font-semibold text-navy-900 hover:bg-navy-50">
+                        <Download size={14} />
+                        Download
+                      </a>
+                    )}
+                    <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-xs font-semibold text-navy-900 hover:bg-navy-50">
+                      {uploading[config.key] ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+                      Replace
+                      <input type="file" accept=".pdf,.docx,.xlsx,.xls,.zip" className="hidden" onChange={(event) => handleFile(config, event.target.files?.[0] ?? null)} />
+                    </label>
+                    {url && (
+                      <Button
+                        type="button"
+                        variant="danger"
+                        className="h-8 px-3 text-xs"
+                        onClick={() => {
+                          setField(config.key, null);
+                          setField(config.nameKey, null);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex justify-end gap-2 sm:col-span-2">
+            <Button type="button" variant="secondary" onClick={onClose} disabled={isBusy}>Cancel</Button>
+            <Button disabled={isBusy}>
+              {isBusy ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function TwoLineText({ value, className = "" }: { value?: string | null; className?: string }) {
   return (
     <span
@@ -352,6 +673,22 @@ function assignedToLabel(tender: Tender, userById: Map<string, Profile>) {
 function formatCurrencyDisplay(value?: number | null) {
   if (value === null || value === undefined) return "-";
   return formatCurrency(value);
+}
+
+function buildStoragePath(tenderId: string, file: File) {
+  const safeTenderId = tenderId.replace(/[^a-zA-Z0-9-_]/g, "-");
+  const safeName = file.name.replace(/[^a-zA-Z0-9-_.]/g, "-");
+  return `${safeTenderId}/${Date.now()}-${safeName}`;
+}
+
+function attachmentNameFromUrl(url?: string | null) {
+  if (!url) return "";
+  try {
+    const pathname = new URL(url).pathname;
+    return decodeURIComponent(pathname.split("/").pop() ?? "");
+  } catch {
+    return url.split("/").pop() ?? "";
+  }
 }
 
 function sourceTypeLabel(sourceType: Tender["source_type"]) {
@@ -444,11 +781,15 @@ function TenderDetailsDrawer({
   onClose: () => void;
 }) {
   const { data: details = emptyTenderDetails, isLoading } = useTenderDetails(tender?.id);
+  const [activeTab, setActiveTab] = useState<"details" | "history">("details");
+  useEffect(() => {
+    if (tender) setActiveTab("details");
+  }, [tender?.id]);
   const attachments = tender
     ? [
-        ["BOQ", tender.boq_attachment_url],
-        ["AOC", tender.aoc_attachment_url],
-        ["Tender Document", tender.tender_document_url]
+        ["BOQ", tender.boq_attachment_url, tender.boq_attachment_name],
+        ["AOC", tender.aoc_attachment_url, tender.aoc_attachment_name],
+        ["Tender Document", tender.tender_document_url, tender.tender_document_attachment_name]
       ].filter(([, url]) => Boolean(url))
     : [];
 
@@ -485,124 +826,160 @@ function TenderDetailsDrawer({
               <MetricTile label="Contract Date" value={<ContractDate tender={tender} />} />
             </div>
 
-            {canAssign && (
-              <Section title="Assignment Controls">
-                <AssignForm tender={tender} users={users} />
+            <div className="flex gap-2 border-b border-border">
+              <button className={`px-3 py-2 text-sm font-bold ${activeTab === "details" ? "border-b-2 border-navy-900 text-navy-900" : "text-slate-500"}`} onClick={() => setActiveTab("details")}>
+                Details
+              </button>
+              <button className={`px-3 py-2 text-sm font-bold ${activeTab === "history" ? "border-b-2 border-navy-900 text-navy-900" : "text-slate-500"}`} onClick={() => setActiveTab("history")}>
+                Tender History
+              </button>
+            </div>
+
+            {activeTab === "details" ? (
+              <>
+                {canAssign && (
+                  <Section title="Assignment Controls">
+                    <AssignForm tender={tender} users={users} />
+                  </Section>
+                )}
+
+                <Section title="Assignment Information">
+                  <AssignmentInfo tender={tender} details={details} userById={userById} currentUserId={currentUserId} />
+                </Section>
+
+                <Section title="Tender Information">
+                  <InfoGrid
+                    rows={[
+                      ["Tender ID", tender.tender_id],
+                      ["Reference No", tender.tender_ref_no],
+                      ["Bid Number", tender.bid_number],
+                      ["GE", tender.ge],
+                      ["CWE", tender.cwe],
+                      ["Make", tender.make],
+                    ]}
+                  />
+                </Section>
+
+                <Section title="Bidder Information">
+                  <InfoGrid
+                    rows={[
+                      ["Bidder Name", tender.bidder_name],
+                      ["Email", tender.email],
+                      ["Contact 1", tender.contact_number_1],
+                      ["Contact 2", tender.contact_number_2],
+                      ["Contact 3", tender.contact_number_3],
+                      ["Address", tender.address]
+                    ]}
+                  />
+                </Section>
+
+                <Section title="Attachments">
+                  {attachments.length ? (
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {attachments.map(([label, url, filename]) => (
+                        <a key={label} href={url ?? "#"} target="_blank" className="flex items-center gap-2 rounded-xl border border-border bg-slate-50 p-3 text-sm font-semibold text-navy-900 hover:bg-navy-50">
+                          <FileText size={16} />
+                          <span className="min-w-0 truncate">{filename || label}</span>
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">No attachments uploaded.</p>
+                  )}
+                </Section>
+
+                <Section title="Timeline">
+                  <div className="space-y-3">
+                    <TimelineItem icon={<FileText size={15} />} title="Tender created" detail={<DateTime value={tender.created_at} />} />
+                    <TimelineItem icon={<CalendarClock size={15} />} title="Last updated" detail={<DateTime value={tender.updated_at ?? tender.created_at} />} />
+                    <TimelineItem icon={<UserRound size={15} />} title="Assignment status" detail={assignedToLabel(tender, userById)} />
+                    {isLoading && <LoadingSkeleton rows={3} />}
+                    {!isLoading && !details.activities.length && <EmptyDrawerState>No activities available</EmptyDrawerState>}
+                    {details.activities.map((activity) => (
+                      <TimelineItem
+                        key={activity.id}
+                        icon={<CheckCircle2 size={15} />}
+                        title={activity.activity_type}
+                        detail={
+                          <>
+                            Created by {activity.user?.full_name || activity.user?.email || "Unknown"} - Created at <DateTime value={activity.created_at} /> - {activity.activity_notes || "No remarks"}
+                          </>
+                        }
+                      />
+                    ))}
+                  </div>
+                </Section>
+
+                <Section title="Assignment History">
+                  {isLoading ? (
+                    <LoadingSkeleton rows={2} />
+                  ) : details.assignments.length ? (
+                    <div className="space-y-3">
+                      {details.assignments.map((assignment) => (
+                        <TimelineItem
+                          key={assignment.id}
+                          icon={<UserRound size={15} />}
+                        title={`Assigned to ${formatProfileDisplayName(assignment.assignee)}`}
+                        detail={
+                          <>
+                              Assigned by {formatProfileDisplayName(assignment.assigner)} - Assigned date <DateTime value={assignment.assigned_date} /> - {assignment.remarks || "No remarks"}
+                          </>
+                        }
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyDrawerState>No assignment history available</EmptyDrawerState>
+                  )}
+                </Section>
+
+                <Section title="Follow-Ups">
+                  {isLoading ? (
+                    <LoadingSkeleton rows={2} />
+                  ) : details.followUps.length ? (
+                    <div className="space-y-3">
+                      {details.followUps.map((followUp) => (
+                        <TimelineItem
+                          key={followUp.id}
+                          icon={<CalendarClock size={15} />}
+                          title={followUp.status}
+                          detail={
+                            <>
+                              Created by {followUp.user?.full_name || followUp.user?.email || "Unknown"} - Follow up date <DateTime value={followUp.follow_up_date} /> - {followUp.remarks || "No remarks"}
+                            </>
+                          }
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyDrawerState>No follow ups available</EmptyDrawerState>
+                  )}
+                </Section>
+              </>
+            ) : (
+              <Section title="Tender History">
+                {isLoading ? (
+                  <LoadingSkeleton rows={3} />
+                ) : details.auditLogs.length ? (
+                  <div className="space-y-3">
+                    {details.auditLogs.map((log) => (
+                      <TimelineItem
+                        key={log.id}
+                        icon={<Pencil size={15} />}
+                        title={historyTitle(log)}
+                        detail={
+                          <>
+                            Changed by {log.user_name || "Unknown"} - Changed at <DateTime value={log.created_at} /> - {historyValue(log.old_data)} to {historyValue(log.new_data)}
+                          </>
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyDrawerState>No tender edits recorded yet</EmptyDrawerState>
+                )}
               </Section>
             )}
-
-            <Section title="Assignment Information">
-              <AssignmentInfo tender={tender} details={details} userById={userById} currentUserId={currentUserId} />
-            </Section>
-
-            <Section title="Tender Information">
-              <InfoGrid
-                rows={[
-                  ["Tender ID", tender.tender_id],
-                  ["Reference No", tender.tender_ref_no],
-                  ["Bid Number", tender.bid_number],
-                  ["GE", tender.ge],
-                  ["CWE", tender.cwe],
-                  ["Make", tender.make],
-                ]}
-              />
-            </Section>
-
-            <Section title="Bidder Information">
-              <InfoGrid
-                rows={[
-                  ["Bidder Name", tender.bidder_name],
-                  ["Email", tender.email],
-                  ["Contact 1", tender.contact_number_1],
-                  ["Contact 2", tender.contact_number_2],
-                  ["Contact 3", tender.contact_number_3],
-                  ["Address", tender.address]
-                ]}
-              />
-            </Section>
-
-            <Section title="Attachments">
-              {attachments.length ? (
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {attachments.map(([label, url]) => (
-                    <a key={label} href={url ?? "#"} target="_blank" className="flex items-center gap-2 rounded-xl border border-border bg-slate-50 p-3 text-sm font-semibold text-navy-900 hover:bg-navy-50">
-                      <FileText size={16} />
-                      {label}
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">No attachments uploaded.</p>
-              )}
-            </Section>
-
-            <Section title="Timeline">
-              <div className="space-y-3">
-                <TimelineItem icon={<FileText size={15} />} title="Tender created" detail={<DateTime value={tender.created_at} />} />
-                <TimelineItem icon={<CalendarClock size={15} />} title="Last updated" detail={<DateTime value={tender.updated_at} />} />
-                <TimelineItem icon={<UserRound size={15} />} title="Assignment status" detail={assignedToLabel(tender, userById)} />
-                {isLoading && <LoadingSkeleton rows={3} />}
-                {!isLoading && !details.activities.length && <EmptyDrawerState>No activities available</EmptyDrawerState>}
-                {details.activities.map((activity) => (
-                  <TimelineItem
-                    key={activity.id}
-                    icon={<CheckCircle2 size={15} />}
-                    title={activity.activity_type}
-                    detail={
-                      <>
-                        Created by {activity.user?.full_name || activity.user?.email || "Unknown"} - Created at <DateTime value={activity.created_at} /> - {activity.activity_notes || "No remarks"}
-                      </>
-                    }
-                  />
-                ))}
-              </div>
-            </Section>
-
-            <Section title="Assignment History">
-              {isLoading ? (
-                <LoadingSkeleton rows={2} />
-              ) : details.assignments.length ? (
-                <div className="space-y-3">
-                  {details.assignments.map((assignment) => (
-                    <TimelineItem
-                      key={assignment.id}
-                      icon={<UserRound size={15} />}
-                    title={`Assigned to ${formatProfileDisplayName(assignment.assignee)}`}
-                    detail={
-                      <>
-                          Assigned by {formatProfileDisplayName(assignment.assigner)} - Assigned date <DateTime value={assignment.assigned_date} /> - {assignment.remarks || "No remarks"}
-                      </>
-                    }
-                    />
-                  ))}
-                </div>
-              ) : (
-                <EmptyDrawerState>No assignment history available</EmptyDrawerState>
-              )}
-            </Section>
-
-            <Section title="Follow-Ups">
-              {isLoading ? (
-                <LoadingSkeleton rows={2} />
-              ) : details.followUps.length ? (
-                <div className="space-y-3">
-                  {details.followUps.map((followUp) => (
-                    <TimelineItem
-                      key={followUp.id}
-                      icon={<CalendarClock size={15} />}
-                      title={followUp.status}
-                      detail={
-                        <>
-                          Created by {followUp.user?.full_name || followUp.user?.email || "Unknown"} - Follow up date <DateTime value={followUp.follow_up_date} /> - {followUp.remarks || "No remarks"}
-                        </>
-                      }
-                    />
-                  ))}
-                </div>
-              ) : (
-                <EmptyDrawerState>No follow ups available</EmptyDrawerState>
-              )}
-            </Section>
           </div>
         )}
       </aside>
@@ -614,12 +991,14 @@ type TenderDetails = {
   assignments: LeadAssignment[];
   followUps: TenderFollowUp[];
   activities: LeadActivity[];
+  auditLogs: AuditLog[];
 };
 
 const emptyTenderDetails: TenderDetails = {
   assignments: [],
   followUps: [],
-  activities: []
+  activities: [],
+  auditLogs: []
 };
 
 function AssignmentInfo({
@@ -673,7 +1052,8 @@ function useTenderDetails(tenderUuid?: string) {
       return {
         assignments: await fetchAssignmentHistory(supabase, tenderUuid, currentProfile),
         followUps: await fetchTenderFollowUps(supabase, tenderUuid, currentProfile),
-        activities: await fetchActivityTimeline(supabase, tenderUuid, currentProfile)
+        activities: await fetchActivityTimeline(supabase, tenderUuid, currentProfile),
+        auditLogs: await getTenderHistoryAction(tenderUuid)
       };
     }
   });
@@ -736,6 +1116,26 @@ async function fetchActivityTimeline(supabase: SupabaseBrowserClient, tenderUuid
   }
 
   return (data ?? []) as LeadActivity[];
+}
+
+function historyTitle(log: AuditLog) {
+  const field = historyFieldName(log).replaceAll("_", " ");
+  if (log.action === "REPLACE_ATTACHMENT") return `Attachment updated: ${field}`;
+  if (log.action === "DELETE_ATTACHMENT") return `Attachment deleted: ${field}`;
+  if (log.action === "DELETE_TENDER") return "Tender deleted";
+  if (log.action === "RESTORE_TENDER") return "Tender restored";
+  return `Updated ${field}`;
+}
+
+function historyFieldName(log: AuditLog) {
+  const fieldName = log.new_data?.field_name ?? log.old_data?.field_name;
+  return typeof fieldName === "string" && fieldName ? fieldName : "Tender";
+}
+
+function historyValue(data: AuditLog["old_data"]) {
+  if (!data) return "-";
+  if ("value" in data) return String(data.value ?? "-");
+  return JSON.stringify(data);
 }
 
 function MetricTile({ label, value }: { label: string; value: React.ReactNode }) {

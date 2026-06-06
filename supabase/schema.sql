@@ -32,9 +32,12 @@ create table public.tenders (
   contact_number_3 text,
   address text,
   make text,
+  boq_attachment_name text,
   email text,
   boq_attachment_url text,
+  aoc_attachment_name text,
   aoc_attachment_url text,
+  tender_document_attachment_name text,
   tender_document_url text,
   our_value numeric,
   source_type source_type not null default 'MANUAL_ENTRY',
@@ -91,8 +94,8 @@ create table public.follow_ups (
 create table public.audit_logs (
   id uuid primary key default gen_random_uuid(),
   table_name text not null,
-  record_id uuid,
-  user_id uuid references public.profiles(id),
+  record_id text,
+  user_id uuid,
   action text not null,
   old_data jsonb,
   new_data jsonb,
@@ -229,6 +232,7 @@ create policy "tenders_update_scope" on public.tenders for update
 using (
   public.current_profile_role() = 'ADMIN'
   or public.current_profile_role() = 'MANAGER'
+  or uploaded_by = auth.uid()
   or exists (
     select 1
     from public.lead_assignments la
@@ -239,6 +243,7 @@ using (
 with check (
   public.current_profile_role() = 'ADMIN'
   or public.current_profile_role() = 'MANAGER'
+  or uploaded_by = auth.uid()
   or exists (
     select 1
     from public.lead_assignments la

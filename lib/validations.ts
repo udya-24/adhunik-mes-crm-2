@@ -52,13 +52,51 @@ export const tenderSchema = z.object({
   address: nullableText,
   make: nullableText,
   email: nullableEmail,
+  boq_attachment_name: nullableText,
   boq_attachment_url: nullableUrl,
+  aoc_attachment_name: nullableText,
   aoc_attachment_url: nullableUrl,
+  tender_document_attachment_name: nullableText,
   tender_document_url: nullableUrl,
   our_value: nullableNumber,
   source_type: z.enum(sourceTypes).default("MANUAL_ENTRY"),
   lead_status: z.enum(leadStatuses).default("NEW")
 });
+
+export const tenderUpdateSchema = tenderSchema
+  .pick({
+    tender_id: true,
+    organisation_chain: true,
+    ge: true,
+    cwe: true,
+    tender_ref_no: true,
+    tender_title: true,
+    contract_date: true,
+    bid_number: true,
+    bidder_name: true,
+    currency: true,
+    awarded_value: true,
+    contact_number_1: true,
+    contact_number_2: true,
+    contact_number_3: true,
+    address: true,
+    make: true,
+    email: true,
+    boq_attachment_name: true,
+    boq_attachment_url: true,
+    aoc_attachment_name: true,
+    aoc_attachment_url: true,
+    tender_document_attachment_name: true,
+    tender_document_url: true,
+    our_value: true
+  })
+  .extend({
+    id: z.string().uuid(),
+    boq_attachment_name: nullableText,
+    aoc_attachment_name: nullableText,
+    tender_document_attachment_name: nullableText,
+    assigned_to: z.string().uuid().optional().nullable()
+  });
 
 export const profileSchema = z.object({
   full_name: z.string().min(2),

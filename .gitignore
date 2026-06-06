@@ -5,3 +5,10 @@ node_modules
 dist
 coverage
 *.log
+
+/Current Developing/
+/Versions/
+/Apps Given by Mayank Sir/
+MES APP 2.txt
+
+*.tsbuildinfo

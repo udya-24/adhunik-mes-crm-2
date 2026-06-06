@@ -27,9 +27,15 @@ const columnMap: Record<string, string> = {
   Address: "address",
   Make: "make",
   Email: "email",
+  "BOQ Attachment Name": "boq_attachment_name",
   "BOQ Attachment": "boq_attachment_url",
+  "BOQ Attachment URL": "boq_attachment_url",
+  "AOC Attachment Name": "aoc_attachment_name",
   "AOC Attachment": "aoc_attachment_url",
+  "AOC Attachment URL": "aoc_attachment_url",
+  "Tender Document Attachment Name": "tender_document_attachment_name",
   "Tender Document Attachment": "tender_document_url",
+  "Tender Document Attachment URL": "tender_document_url",
   "Our Value (Adhunik)": "our_value"
 };
 
