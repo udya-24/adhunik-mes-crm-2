@@ -55,19 +55,21 @@ const editTextFields = [
   ["contact_number_3", "Contact Number 3"]
 ] as const;
 
+type TenderDataGridProps = {
+  users: Profile[];
+  canAssign: boolean;
+  canDelete: boolean;
+  currentUserId: string | null;
+  currentUserRole: Role | null;
+};
+
 export function TenderDataGrid({
   users,
   canAssign,
   canDelete,
   currentUserId,
   currentUserRole
-}: {
-  users: Profile[];
-  canAssign: boolean;
-  canDelete: boolean;
-  currentUserId: string | null;
-  currentUserRole: Role | null;
-}) {
+}: TenderDataGridProps) {
   const { data: tenders = [], error, isLoading, isFetching } = useTenders();
   const queryClient = useQueryClient();
   const [isDeleting, startDeleteTransition] = useTransition();
