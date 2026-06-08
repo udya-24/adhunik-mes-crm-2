@@ -102,9 +102,24 @@ export async function getAssignableUsers() {
   noStore();
   const supabase = await createClient();
   const profile = await getCurrentProfile();
-  let query = supabase.from("profiles").select("*").eq("is_active", true).in("role", ["MANAGER", "USER"]).order("full_name");
-  if (profile?.role === "MANAGER") query = query.eq("manager_id", profile.id);
-  const { data } = await query;
+
+  if (!profile) return [];
+
+  let query = supabase.from("profiles").select("*").eq("is_active", true).order("full_name");
+  if (profile.role === "ADMIN") {
+    query = query.in("role", ["MANAGER", "USER"]);
+  } else if (profile.role === "MANAGER") {
+    query = query.eq("role", "USER").eq("manager_id", profile.id);
+  } else {
+    return [];
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    logQueryError("getAssignableUsers profiles", error);
+    return [];
+  }
+
   return (data ?? []) as Profile[];
 }
 

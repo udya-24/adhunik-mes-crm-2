@@ -5,7 +5,7 @@ import { getCurrentProfile, requireRole } from "@/lib/auth";
 import { normalizeDateFields, utcNowISOString } from "@/lib/date-utils";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { AuditLog, ManualTenderInsert, Tender, TenderUpdateInput } from "@/lib/types";
+import type { AuditLog, ManualTenderInsert, Profile, Tender, TenderUpdateInput } from "@/lib/types";
 import { assignmentSchema, followUpSchema, tenderSchema, tenderUpdateSchema } from "@/lib/validations";
 
 function emptyToNull(value: unknown) {
@@ -20,6 +20,26 @@ function normalizeAuditValue(value: unknown) {
 
 function canEditTender(profile: { id: string; role: string }, tender: { uploaded_by: string | null; assigned_to: string | null }) {
   return profile.role === "ADMIN" || profile.role === "MANAGER" || tender.uploaded_by === profile.id || tender.assigned_to === profile.id;
+}
+
+async function assertCanAssignToProfile(
+  supabase: ReturnType<typeof createAdminClient>,
+  profile: Pick<Profile, "id" | "role">,
+  assignedTo: string
+) {
+  let query = supabase.from("profiles").select("id,role,manager_id,is_active").eq("id", assignedTo).eq("is_active", true);
+
+  if (profile.role === "ADMIN") {
+    query = query.in("role", ["MANAGER", "USER"]);
+  } else if (profile.role === "MANAGER") {
+    query = query.eq("role", "USER").eq("manager_id", profile.id);
+  } else {
+    throw new Error("You do not have permission to assign tenders.");
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Selected assignee is not available for your role.");
 }
 
 export async function createTenderAction(input: FormData | ManualTenderInsert) {
@@ -171,6 +191,7 @@ export async function updateTenderAction(input: TenderUpdateInput) {
 
   const canReassign = profile.role === "ADMIN" || profile.role === "MANAGER";
   const updatedAt = utcNowISOString();
+  const nextAssignedTo = emptyToNull(rawPayload.assigned_to) as string | null;
   const updates = {
     tender_id: rawPayload.tender_id,
     organisation_chain: emptyToNull(rawPayload.organisation_chain),
@@ -197,7 +218,7 @@ export async function updateTenderAction(input: TenderUpdateInput) {
     tender_document_attachment_name: emptyToNull(rawPayload.tender_document_attachment_name),
     tender_document_url: emptyToNull(rawPayload.tender_document_url),
     updated_at: updatedAt,
-    ...(canReassign ? { assigned_to: emptyToNull(rawPayload.assigned_to), assigned_by: rawPayload.assigned_to ? profile.id : existing.assigned_by } : {})
+    ...(canReassign ? { assigned_to: nextAssignedTo, assigned_by: nextAssignedTo ? profile.id : existing.assigned_by } : {})
   };
 
   const auditRows = editableTenderFields
@@ -223,14 +244,18 @@ export async function updateTenderAction(input: TenderUpdateInput) {
 
   if (!auditRows.length) return { ok: true, changed: 0 };
 
+  const assignedToChanged = canReassign && existing.assigned_to !== nextAssignedTo;
+  if (assignedToChanged && nextAssignedTo) {
+    await assertCanAssignToProfile(supabase, profile, nextAssignedTo);
+  }
+
   const { data: updatedTender, error: updateError } = await supabase.from("tenders").update(updates).eq("id", rawPayload.id).select("*").single();
   if (updateError) throw new Error(updateError.message);
 
-  const assignedToChanged = canReassign && existing.assigned_to !== updates.assigned_to;
-  if (assignedToChanged && updates.assigned_to) {
+  if (assignedToChanged && nextAssignedTo) {
     await supabase.from("lead_assignments").insert({
       tender_id: rawPayload.id,
-      assigned_to: updates.assigned_to,
+      assigned_to: nextAssignedTo,
       assigned_by: profile.id,
       remarks: "Reassigned from tender edit"
     });
@@ -305,6 +330,9 @@ export async function assignLeadAction(formData: FormData) {
     assignedTo: formData.get("assignedTo"),
     remarks: formData.get("remarks") || undefined
   });
+  const adminSupabase = createAdminClient();
+  await assertCanAssignToProfile(adminSupabase, profile, payload.assignedTo);
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("tenders")

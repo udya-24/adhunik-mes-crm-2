@@ -578,7 +578,7 @@ function TenderEditModal({
               <select className={inputClass} value={formState.assigned_to ?? ""} onChange={(event) => setField("assigned_to", event.target.value || null)}>
                 <option value="">Unassigned</option>
                 {users.map((user) => (
-                  <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
+                  <option key={user.id} value={user.id}>{formatAssignableUserOption(user)}</option>
                 ))}
               </select>
             </Field>
@@ -670,6 +670,10 @@ function assignedToLabel(tender: Tender, userById: Map<string, Profile>) {
   return formatProfileDisplayName(user);
 }
 
+function formatAssignableUserOption(user: Profile) {
+  return `${formatProfileDisplayName(user)} (${user.role})`;
+}
+
 function formatCurrencyDisplay(value?: number | null) {
   if (value === null || value === undefined) return "-";
   return formatCurrency(value);
@@ -737,7 +741,7 @@ function AssignForm({ tender, users }: { tender: Tender; users: Profile[] }) {
       <select name="assignedTo" required className="h-8 max-w-36 rounded-md border border-border px-2 text-xs">
         <option value="">User</option>
         {users.map((user) => (
-          <option key={user.id} value={user.id}>{user.full_name || user.email}</option>
+          <option key={user.id} value={user.id}>{formatAssignableUserOption(user)}</option>
         ))}
       </select>
       <input name="remarks" className="hidden" value="Assigned from tender grid" readOnly />
