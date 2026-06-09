@@ -3,16 +3,56 @@ import { getCurrentProfile, requireRole } from "@/lib/auth";
 import { formatDate, getISTDayBoundsISO } from "@/lib/date-utils";
 import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/server";
-import type { DashboardMetrics, Profile, Tender } from "@/lib/types";
+import type { AgeingBucket, AnalyticsBreakdowns, DashboardMetrics, LeadStatusMaster, Profile, StatusSummaryRow, Tender, UserPerformanceRow } from "@/lib/types";
 
 const defaultDashboardMetrics: DashboardMetrics = {
   totalTenders: 0,
   totalTenderValue: 0,
+  totalOurValue: 0,
   assignedLeads: 0,
   unassignedLeads: 0,
+  assignedOurValue: 0,
+  unassignedOurValue: 0,
+  myOurValue: 0,
+  showMyOurValue: false,
   wonLeads: 0,
-  lostLeads: 0
+  lostLeads: 0,
+  quotationSentValue: 0,
+  negotiationValue: 0,
+  piPendingValue: 0,
+  orderReceivedValue: 0,
+  lostLeadValue: 0
 };
+
+export const defaultLeadStatuses: LeadStatusMaster[] = [
+  "New Lead",
+  "First Contact",
+  "Contacted",
+  "Requirement Received",
+  "BOQ Requested",
+  "BOQ Received",
+  "Quotation Sent",
+  "Technical Discussion",
+  "Price Negotiation",
+  "Sample Submitted",
+  "PI Sent",
+  "PI Waiting Approval",
+  "Order Expected",
+  "Order Received",
+  "Lost To Competitor",
+  "No Requirement",
+  "Not Reachable",
+  "Follow Up Required",
+  "On Hold",
+  "Closed"
+].map((status_name, index) => ({
+  id: `fallback-${index + 1}`,
+  status_name,
+  sort_order: index + 1,
+  status_color: index === 13 ? "#15803d" : index === 14 ? "#dc2626" : index === 6 ? "#f97316" : "#173b71",
+  is_active: true,
+  created_at: ""
+}));
 
 const emptyFollowUpBuckets = {
   today: [],
@@ -83,19 +123,85 @@ export async function getDeletedTenderRows() {
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   noStore();
   try {
-    const tenders = await getTenderRows({ limit: 5000 });
+    const [profile, tenders, statusSummary] = await Promise.all([getCurrentProfile(), getAnalyticsTenderRows(), getStatusSummaryRows()]);
     return {
-      totalTenders: tenders.length,
-      totalTenderValue: tenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
+      totalTenders: sumStatusCount(statusSummary) || tenders.length,
+      totalTenderValue: sumStatusAwardedValue(statusSummary) || tenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
+      totalOurValue: sumStatusOurValue(statusSummary) || sumOurValue(tenders),
       assignedLeads: tenders.filter((tender) => tender.assigned_to).length,
       unassignedLeads: tenders.filter((tender) => !tender.assigned_to).length,
-      wonLeads: tenders.filter((tender) => tender.lead_status === "WON").length,
-      lostLeads: tenders.filter((tender) => tender.lead_status === "LOST").length
+      assignedOurValue: sumOurValue(tenders.filter((tender) => tender.assigned_to)),
+      unassignedOurValue: sumOurValue(tenders.filter((tender) => !tender.assigned_to)),
+      myOurValue: profile?.role === "USER" ? sumOurValue(tenders.filter((tender) => tender.assigned_to === profile.id || tender.uploaded_by === profile.id)) : 0,
+      showMyOurValue: profile?.role === "USER",
+      wonLeads: statusSummary.find((row) => row.status_name === "Order Received")?.tender_count ?? 0,
+      lostLeads: statusSummary.find((row) => row.status_name === "Lost To Competitor")?.tender_count ?? 0,
+      quotationSentValue: statusOurValue(statusSummary, "Quotation Sent"),
+      negotiationValue: statusOurValue(statusSummary, "Price Negotiation"),
+      piPendingValue: statusOurValue(statusSummary, "PI Waiting Approval"),
+      orderReceivedValue: statusOurValue(statusSummary, "Order Received"),
+      lostLeadValue: statusOurValue(statusSummary, "Lost To Competitor")
     };
   } catch (error) {
     console.error("getDashboardMetrics", error);
     return defaultDashboardMetrics;
   }
+}
+
+export async function getStatusSummaryRows(): Promise<StatusSummaryRow[]> {
+  noStore();
+  const supabase = await createClient();
+  const { data, error } = await orderBySortOrderWithFallback(() => supabase.from("vw_status_summary").select("*"));
+  if (error) {
+    logQueryError("getStatusSummaryRows vw_status_summary", error);
+    return [];
+  }
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    status_id: String(row.status_id ?? row.lead_status_id ?? row.id ?? "") || null,
+    status_name: String(row.status_name ?? row.name ?? "Unknown"),
+    status_color: typeof row.status_color === "string" ? row.status_color : null,
+    sort_order: numericOrNull(row.sort_order ?? row.status_order),
+    tender_count: Number(row.tender_count ?? row.count ?? row.total_tenders ?? 0),
+    our_value: Number(row.our_value ?? row.total_our_value ?? row.our_value_total ?? 0),
+    awarded_value: Number(row.awarded_value ?? row.total_awarded_value ?? row.awarded_value_total ?? 0)
+  }));
+}
+
+export async function getLeadStatuses({ activeOnly = false }: { activeOnly?: boolean } = {}) {
+  noStore();
+  const supabase = await createClient();
+  const buildQuery = () => {
+    let query = supabase.from("lead_status_master").select("*");
+    if (activeOnly) query = query.eq("is_active", true);
+    return query;
+  };
+  const { data, error } = await orderBySortOrderWithFallback(buildQuery);
+  if (error) {
+    logQueryError("getLeadStatuses lead_status_master", error);
+    return activeOnly ? defaultLeadStatuses.filter((status) => status.is_active) : defaultLeadStatuses;
+  }
+  const statuses = ((data ?? []) as LeadStatusMaster[]).map((status) => ({
+    ...status,
+    sort_order: Number(status.sort_order ?? status.status_order ?? 0)
+  }));
+  return statuses.length ? statuses : defaultLeadStatuses;
+}
+
+async function orderBySortOrderWithFallback(
+  buildQuery: () => { order: (column: string, options: { ascending: boolean }) => PromiseLike<{ data: Record<string, unknown>[] | null; error: { message?: string; details?: string | null; hint?: string | null } | null }> }
+) {
+  const result = await buildQuery().order("sort_order", { ascending: true });
+  if (!result.error || !isMissingColumnError(result.error, "sort_order")) return result;
+  return buildQuery().order("status_order", { ascending: true });
+}
+
+function isMissingColumnError(error: { message?: string; details?: string | null; hint?: string | null }, column: string) {
+  return [error.message, error.details, error.hint].filter(Boolean).some((value) => String(value).includes(column));
+}
+
+function numericOrNull(value: unknown) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
 export async function getAssignableUsers() {
@@ -187,16 +293,19 @@ export async function getFollowUpBuckets() {
 }
 
 export async function getAnalyticsBreakdowns() {
-  const tenders = await getTenderRows({ limit: 5000 });
-  const groupByValue = (getName: (tender: Tender) => string | null | undefined) => {
-    const map = new Map<string, { name: string; count: number; value: number; won: number; lost: number }>();
+  const [tenders, statusSummary] = await Promise.all([getAnalyticsTenderRows(), getStatusSummaryRows()]);
+  const groupByValue = (getName: (tender: Tender) => string | null | undefined, { skipEmpty = false }: { skipEmpty?: boolean } = {}) => {
+    const map = new Map<string, { name: string; count: number; value: number; ourValue: number; won: number; lost: number }>();
     tenders.forEach((tender) => {
-      const name = String(getName(tender) || "Unknown");
-      const row = map.get(name) ?? { name, count: 0, value: 0, won: 0, lost: 0 };
+      const rawName = getName(tender);
+      if (skipEmpty && !rawName) return;
+      const name = String(rawName || "Unknown");
+      const row = map.get(name) ?? { name, count: 0, value: 0, ourValue: 0, won: 0, lost: 0 };
       row.count += 1;
       row.value += Number(tender.awarded_value ?? 0);
-      if (tender.lead_status === "WON") row.won += Number(tender.awarded_value ?? 0);
-      if (tender.lead_status === "LOST") row.lost += Number(tender.awarded_value ?? 0);
+      row.ourValue += Number(tender.our_value ?? 0);
+      if (leadStageName(tender) === "Order Received") row.won += Number(tender.awarded_value ?? 0);
+      if (leadStageName(tender) === "Lost To Competitor") row.lost += Number(tender.awarded_value ?? 0);
       map.set(name, row);
     });
     return Array.from(map.values()).sort((a, b) => b.value - a.value).slice(0, 10);
@@ -207,8 +316,176 @@ export async function getAnalyticsBreakdowns() {
     cwe: groupByValue((tender) => tender.cwe),
     contractDate: groupByValue((tender) => formatDate(tender.contract_date)),
     bidder: groupByValue((tender) => tender.bidder_name),
-    user: groupByValue((tender) => (tender.assigned_to ? assignedTenderUserName(tender) : "Unassigned"))
+    user: groupByValue((tender) => (tender.assigned_to ? assignedTenderUserName(tender) : "Unassigned")),
+    ourValueByUser: groupByValue((tender) => (tender.assigned_to ? assignedTenderUserName(tender) : "Unassigned")),
+    ourValueByGE: groupByValue((tender) => tender.ge),
+    ourValueByContractor: groupByValue((tender) => tender.bidder_name),
+    monthlyOurValueTrend: getMonthlyOurValueTrend(tenders),
+    ageing: getAgeingBuckets(tenders),
+    leadStageDistribution: statusSummaryToBreakdown(statusSummary),
+    lostLeadsByReason: groupByValue((tender) => (leadStageName(tender) === "Lost To Competitor" ? "Unknown" : null), { skipEmpty: true }),
+    competitorAnalysis: groupByValue((tender) => (leadStageName(tender) === "Lost To Competitor" ? "Unknown" : null), { skipEmpty: true }),
+    userWiseConversion: groupByValue((tender) => (leadStageName(tender) === "Order Received" ? assignedTenderUserName(tender) : null), { skipEmpty: true }),
+    managerWiseConversion: groupByValue((tender) => (leadStageName(tender) === "Order Received" ? tender.assigned_profile?.role ?? "Unknown" : null), { skipEmpty: true }),
+    salesFunnel: getSalesFunnel(statusSummary)
+  } satisfies AnalyticsBreakdowns;
+}
+
+export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
+  noStore();
+  const supabase = await createClient();
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role === "USER") return [];
+
+  let usersQuery = supabase.from("profiles").select("*").eq("is_active", true).in("role", ["MANAGER", "USER"]).order("full_name");
+  if (profile.role === "MANAGER") usersQuery = usersQuery.eq("manager_id", profile.id).eq("role", "USER");
+
+  const [{ data: users, error: usersError }, tenders, { data: followUps, error: followUpsError }] = await Promise.all([
+    usersQuery,
+    getAnalyticsTenderRows(),
+    supabase.from("follow_ups").select("user_id")
+  ]);
+
+  if (usersError) {
+    logQueryError("getUserPerformanceRows profiles", usersError);
+    return [];
+  }
+  if (followUpsError) logQueryError("getUserPerformanceRows follow_ups", followUpsError);
+
+  const userRows = (users ?? []) as Profile[];
+  const followUpsByUser = new Map<string, number>();
+  (followUps ?? []).forEach((followUp) => {
+    followUpsByUser.set(followUp.user_id, (followUpsByUser.get(followUp.user_id) ?? 0) + 1);
+  });
+
+  return userRows.map((user) => {
+    const assigned = tenders.filter((tender) => tender.assigned_to === user.id);
+    return {
+      userId: user.id,
+      userName: formatProfileDisplayName(user),
+      role: user.role,
+      assignedTenders: assigned.length,
+      uploadedTenders: tenders.filter((tender) => tender.uploaded_by === user.id).length,
+      followUps: followUpsByUser.get(user.id) ?? 0,
+      assignedOurValue: sumOurValue(assigned),
+      convertedTenders: assigned.filter((tender) => leadStageName(tender) === "Order Received").length
+    };
+  });
+}
+
+async function getAnalyticsTenderRows() {
+  const [profile, tenders] = await Promise.all([getCurrentProfile(), getTenderRows({ limit: 5000 })]);
+  if (!profile) return [];
+  if (profile.role === "USER") return tenders;
+  if (profile.role !== "MANAGER") return tenders;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("profiles").select("id").eq("manager_id", profile.id).eq("is_active", true);
+  if (error) {
+    logQueryError("getAnalyticsTenderRows team profiles", error);
+    return tenders;
+  }
+
+  const teamIds = new Set([profile.id, ...(data ?? []).map((user) => user.id)]);
+  return tenders.filter((tender) => (tender.assigned_to && teamIds.has(tender.assigned_to)) || (tender.uploaded_by && teamIds.has(tender.uploaded_by)));
+}
+
+function sumOurValue(tenders: Tender[]) {
+  return tenders.reduce((sum, tender) => sum + Number(tender.our_value ?? 0), 0);
+}
+
+function leadStageName(tender: Tender) {
+  return tender.lead_stage?.status_name || leadStatusNameFromEnum(tender.lead_status);
+}
+
+function leadStatusNameFromEnum(status: Tender["lead_status"] | null | undefined) {
+  const labels: Record<NonNullable<Tender["lead_status"]>, string> = {
+    NEW: "New Lead",
+    ASSIGNED: "New Lead",
+    CONTACTED: "Contacted",
+    FOLLOW_UP: "Follow Up Required",
+    QUOTATION_SENT: "Quotation Sent",
+    NEGOTIATION: "Price Negotiation",
+    WON: "Order Received",
+    LOST: "Lost To Competitor"
   };
+  return status ? labels[status] : "No Status";
+}
+
+function statusOurValue(rows: StatusSummaryRow[], statusName: string) {
+  return rows.find((row) => row.status_name === statusName)?.our_value ?? 0;
+}
+
+function sumStatusCount(rows: StatusSummaryRow[]) {
+  return rows.reduce((sum, row) => sum + row.tender_count, 0);
+}
+
+function sumStatusOurValue(rows: StatusSummaryRow[]) {
+  return rows.reduce((sum, row) => sum + row.our_value, 0);
+}
+
+function sumStatusAwardedValue(rows: StatusSummaryRow[]) {
+  return rows.reduce((sum, row) => sum + row.awarded_value, 0);
+}
+
+function getSalesFunnel(statusSummary: StatusSummaryRow[]) {
+  const stages = ["New Lead", "First Contact", "Quotation Sent", "Price Negotiation", "PI Sent", "Order Received"];
+  return stages.map((stage) => {
+    const row = statusSummary.find((item) => item.status_name === stage);
+    return {
+      name: stage,
+      count: row?.tender_count ?? 0,
+      value: row?.awarded_value ?? 0,
+      ourValue: row?.our_value ?? 0,
+      won: stage === "Order Received" ? row?.our_value ?? 0 : 0,
+      lost: 0
+    };
+  });
+}
+
+function statusSummaryToBreakdown(rows: StatusSummaryRow[]) {
+  return rows.map((row) => ({
+    name: row.status_name,
+    count: row.tender_count,
+    value: row.awarded_value,
+    ourValue: row.our_value,
+    won: row.status_name === "Order Received" ? row.our_value : 0,
+    lost: row.status_name === "Lost To Competitor" ? row.our_value : 0
+  }));
+}
+
+function getAgeingBuckets(tenders: Tender[]): AgeingBucket[] {
+  const buckets = [
+    { name: "0-7 Days", min: 0, max: 7, count: 0, ourValue: 0, awardedValue: 0 },
+    { name: "8-30 Days", min: 8, max: 30, count: 0, ourValue: 0, awardedValue: 0 },
+    { name: "31-90 Days", min: 31, max: 90, count: 0, ourValue: 0, awardedValue: 0 },
+    { name: "90+ Days", min: 91, max: Number.POSITIVE_INFINITY, count: 0, ourValue: 0, awardedValue: 0 }
+  ];
+  const today = new Date();
+  tenders.forEach((tender) => {
+    const createdAt = tender.created_at ? new Date(tender.created_at) : today;
+    const ageDays = Math.max(0, Math.floor((today.getTime() - createdAt.getTime()) / 86400000));
+    const bucket = buckets.find((item) => ageDays >= item.min && ageDays <= item.max) ?? buckets[buckets.length - 1];
+    bucket.count += 1;
+    bucket.ourValue += Number(tender.our_value ?? 0);
+    bucket.awardedValue += Number(tender.awarded_value ?? 0);
+  });
+  return buckets.map(({ min, max, ...bucket }) => bucket);
+}
+
+function getMonthlyOurValueTrend(tenders: Tender[]) {
+  const map = new Map<string, { name: string; count: number; value: number; ourValue: number }>();
+  tenders.forEach((tender) => {
+    const date = tender.contract_date || tender.created_at;
+    const month = date ? new Date(date) : new Date();
+    const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
+    const row = map.get(key) ?? { name: key, count: 0, value: 0, ourValue: 0 };
+    row.count += 1;
+    row.value += Number(tender.awarded_value ?? 0);
+    row.ourValue += Number(tender.our_value ?? 0);
+    map.set(key, row);
+  });
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name)).slice(-12);
 }
 
 function assignedTenderUserName(tender: Tender) {
@@ -259,7 +536,8 @@ function normalizeTenderProfiles(tenders: Tender[]) {
     ...tender,
     uploaded_by_profile: firstProfile(tender.uploaded_by_profile),
     assigned_profile: firstProfile(tender.assigned_profile),
-    assigned_by_profile: firstProfile(tender.assigned_by_profile)
+    assigned_by_profile: firstProfile(tender.assigned_by_profile),
+    lead_stage: firstProfile(tender.lead_stage)
   }));
 }
 
@@ -281,7 +559,7 @@ export async function getContractorIntelligence() {
     row.awardedValue += Number(tender.awarded_value ?? 0);
     row.ge[tender.ge || "Unknown"] = (row.ge[tender.ge || "Unknown"] ?? 0) + 1;
     row.cwe[tender.cwe || "Unknown"] = (row.cwe[tender.cwe || "Unknown"] ?? 0) + 1;
-    if (tender.lead_status === "WON") row.won += 1;
+    if (leadStageName(tender) === "Order Received") row.won += 1;
     map.set(contractor, row);
   });
 

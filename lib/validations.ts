@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { leadStatuses, roles, sourceTypes } from "./constants.ts";
+import { roles, sourceTypes } from "./constants.ts";
 import { normalizeDateValue } from "./date-utils.ts";
 
 const nullableText = z.preprocess((value) => (value === "" ? undefined : value), z.string().optional().nullable());
@@ -59,8 +59,7 @@ export const tenderSchema = z.object({
   tender_document_attachment_name: nullableText,
   tender_document_url: nullableUrl,
   our_value: nullableNumber,
-  source_type: z.enum(sourceTypes).default("MANUAL_ENTRY"),
-  lead_status: z.enum(leadStatuses).default("NEW")
+  source_type: z.enum(sourceTypes).default("MANUAL_ENTRY")
 });
 
 export const tenderUpdateSchema = tenderSchema
@@ -110,5 +109,5 @@ export const followUpSchema = z.object({
   tenderId: z.string().uuid(),
   followUpDate: z.string(),
   remarks: z.string().min(1),
-  status: z.enum(leadStatuses)
+  status: z.string().min(1)
 });

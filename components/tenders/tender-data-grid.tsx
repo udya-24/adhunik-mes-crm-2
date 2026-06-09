@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { assignLeadAction, deleteTenderAction, getTenderHistoryAction, updateLeadStatusAction, updateTenderAction } from "@/app/actions/tenders";
+import { addLeadRemarkAction, assignLeadAction, bulkTenderAction, deleteTenderAction, getTenderHistoryAction, updateLeadStageAction, updateTenderAction } from "@/app/actions/tenders";
 import { ContractDate } from "@/components/common/contract-date";
 import { DateTime } from "@/components/common/date-time";
 import { Badge } from "@/components/ui/badge";
@@ -11,12 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, inputClass } from "@/components/ui/field";
 import { useTenders } from "@/hooks/use-tenders";
-import { leadStatuses, sourceTypes } from "@/lib/constants";
+import { sourceTypes } from "@/lib/constants";
 import { formatDate } from "@/lib/date-utils";
 import { invalidateTenderQueries } from "@/lib/queries/tenders";
 import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/client";
-import type { AuditLog, LeadActivity, LeadAssignment, Profile, Role, Tender, TenderFollowUp, TenderUpdateInput } from "@/lib/types";
+import type { AuditLog, LeadActivity, LeadAssignment, LeadRemark, LeadStatusHistory, LeadStatusMaster, Profile, Role, Tender, TenderFollowUp, TenderUpdateInput } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 const stickyStatusHeaderClass = "sticky right-[340px] z-30 min-w-[7rem] bg-slate-50 px-2 py-2 font-bold";
@@ -57,6 +57,7 @@ const editTextFields = [
 
 type TenderDataGridProps = {
   users: Profile[];
+  leadStatuses: LeadStatusMaster[];
   canAssign: boolean;
   canDelete: boolean;
   currentUserId: string | null;
@@ -65,24 +66,44 @@ type TenderDataGridProps = {
 
 export function TenderDataGrid({
   users,
+  leadStatuses,
   canAssign,
   canDelete,
   currentUserId,
   currentUserRole
 }: TenderDataGridProps) {
-  const { data: tenders = [], error, isLoading, isFetching } = useTenders();
   const queryClient = useQueryClient();
   const [isDeleting, startDeleteTransition] = useTransition();
-  const [search, setSearch] = useState("");
+  const [isBulkPending, startBulkTransition] = useTransition();
+  const [search, setSearch] = useState(() => (typeof window === "undefined" ? "" : localStorage.getItem("tender-search") ?? ""));
   const [status, setStatus] = useState("");
   const [source, setSource] = useState("");
   const [assignment, setAssignment] = useState("");
+  const [page, setPage] = useState(() => {
+    if (typeof window === "undefined") return 1;
+    return Number(localStorage.getItem("tender-page") ?? "1") || 1;
+  });
+  const [pageSize, setPageSize] = useState(() => {
+    if (typeof window === "undefined") return 50;
+    return Number(localStorage.getItem("tender-page-size") ?? "50") || 50;
+  });
   const [openTender, setOpenTender] = useState<Tender | null>(null);
   const [editTarget, setEditTarget] = useState<Tender | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Tender | null>(null);
   const [deleteError, setDeleteError] = useState("");
-  const tableColumnCount = 13;
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<"assign" | "unassign" | "delete" | null>(null);
+  const [bulkAssignedTo, setBulkAssignedTo] = useState("");
+  const [bulkError, setBulkError] = useState("");
+  const { data: tenderPage = { rows: [], total: 0 }, error, isLoading, isFetching } = useTenders({ search, status, source, assignment, page, pageSize });
+  const tenders = tenderPage.rows;
+  const totalTenders = tenderPage.total;
+  const totalPages = Math.max(1, Math.ceil(totalTenders / pageSize));
+  const showingFrom = totalTenders ? (page - 1) * pageSize + 1 : 0;
+  const showingTo = Math.min(page * pageSize, totalTenders);
+  const tableColumnCount = 14;
   const tableHeaders = [
+    { label: "", className: "w-10 px-2 py-2" },
     { label: "Tender ID", className: "px-2 py-2 font-bold" },
     { label: "Tender Title", className: "px-2 py-2 font-bold" },
     { label: "GE", className: "px-2 py-2 font-bold" },
@@ -99,59 +120,152 @@ export function TenderDataGrid({
   ];
 
   const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const selectedTenders = useMemo(() => tenders.filter((tender) => selectedIds.includes(tender.id)), [selectedIds, tenders]);
+  const allPageSelected = Boolean(tenders.length) && tenders.every((tender) => selectedIds.includes(tender.id));
+  const visibleTenderIdKey = useMemo(() => tenders.map((tender) => tender.id).join("|"), [tenders]);
 
-  const filtered = useMemo(() => {
-    return tenders.filter((tender) => {
-      const haystack = [tender.tender_id, tender.ge, tender.cwe, tender.bidder_name].join(" ").toLowerCase();
-      const isAssigned = Boolean(tender.assigned_to);
-      const matchesAssignment = assignment === "assigned" ? isAssigned : assignment === "unassigned" ? !isAssigned : true;
-      return (
-        haystack.includes(search.toLowerCase()) &&
-        (!status || tender.lead_status === status) &&
-        (!source || tender.source_type === source) &&
-        matchesAssignment
-      );
+  useEffect(() => {
+    localStorage.setItem("tender-search", search);
+  }, [search]);
+
+  useEffect(() => {
+    localStorage.setItem("tender-page", String(page));
+  }, [page]);
+
+  useEffect(() => {
+    localStorage.setItem("tender-page-size", String(pageSize));
+  }, [pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, status, source, assignment, pageSize]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleTenderIdKey ? visibleTenderIdKey.split("|") : []);
+
+    setSelectedIds((current) => {
+      const filtered = current.filter((id) => visibleIds.has(id));
+
+      if (filtered.length === current.length && filtered.every((id, index) => id === current[index])) {
+        return current;
+      }
+
+      return filtered;
     });
-  }, [tenders, search, status, source, assignment]);
+  }, [visibleTenderIdKey]);
+
+  const pageNumbers = useMemo(() => getPageNumbers(page, totalPages), [page, totalPages]);
 
   function exportCsv() {
+    exportTenderCsv(tenders, userById, "adhunik-tenders.csv");
+  }
+
+  function exportSelectedCsv() {
+    exportTenderCsv(selectedTenders, userById, "adhunik-selected-tenders.csv");
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds(allPageSelected ? [] : tenders.map((tender) => tender.id));
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  }
+
+  function runBulkAction() {
+    if (!bulkAction) return;
+    setBulkError("");
+    startBulkTransition(async () => {
+      try {
+        await bulkTenderAction({ tenderIds: selectedIds, action: bulkAction, assignedTo: bulkAssignedTo || null });
+        setBulkAction(null);
+        setBulkAssignedTo("");
+        setSelectedIds([]);
+        await invalidateTenderQueries(queryClient);
+      } catch (error) {
+        setBulkError(error instanceof Error ? error.message : "Bulk operation failed.");
+      }
+    });
+  }
+
+  function exportTenderCsv(rows: Tender[], usersById: Map<string, Profile>, filename: string) {
     const csv = [
       [
         "Tender ID",
+        "Organisation Chain",
         "GE",
         "CWE",
-        "Bidder Name",
+        "Tender Ref No",
+        "Tender Title",
         "Contract Date",
+        "Bid Number",
+        "Bidder Name",
+        "Contact Number 1",
+        "Contact Number 2",
+        "Contact Number 3",
+        "Email",
+        "Address",
+        "Make",
         "Awarded Value",
         "Our Value",
-        "BOQ Attachment Name",
-        "BOQ Attachment URL",
-        "AOC Attachment Name",
-        "AOC Attachment URL",
-        "Tender Document Attachment Name",
-        "Tender Document Attachment URL",
+        "Lead Stage",
         "Assigned To",
-        "Status",
-        "Source Type"
+        "Assigned By",
+        "Source Type",
+        "Latest Remark",
+        "Last Updated By",
+        "Last Updated Date",
+        "BOQ Attachment Name",
+        "AOC Attachment Name",
+        "Tender Document Attachment Name",
+        "Created Date",
+        "Updated Date",
+        "Company Name",
+        "Contact Person",
+        "Mobile Number",
+        "Contact Email",
+        "Contact Address"
       ].join(","),
-      ...filtered.map((tender) =>
+      ...rows.map((tender) =>
         [
           tender.tender_id,
+          tender.organisation_chain,
           tender.ge,
           tender.cwe,
-          tender.bidder_name,
+          tender.tender_ref_no,
+          tender.tender_title,
           formatDate(tender.contract_date),
+          tender.bid_number,
+          tender.bidder_name,
+          tender.contact_number_1,
+          tender.contact_number_2,
+          tender.contact_number_3,
+          tender.email,
+          tender.address,
+          tender.make,
           formatCurrencyDisplay(tender.awarded_value),
           formatCurrencyDisplay(tender.our_value),
+          leadStageLabel(tender),
+          assignedToLabel(tender, usersById),
+          tender.assigned_by_profile ? formatProfileDisplayName(tender.assigned_by_profile) : "",
+          sourceTypeLabel(tender.source_type),
+          tender.latest_remark,
+          tender.last_updated_by_name,
+          tender.last_activity_date,
           tender.boq_attachment_name,
-          tender.boq_attachment_url,
           tender.aoc_attachment_name,
-          tender.aoc_attachment_url,
           tender.tender_document_attachment_name,
-          tender.tender_document_url,
-          assignedToLabel(tender, userById),
-          tender.lead_status,
-          sourceTypeLabel(tender.source_type)
+          tender.created_at,
+          tender.updated_at,
+          tender.bidder_name,
+          tender.bidder_name,
+          tender.contact_number_1,
+          tender.email,
+          tender.address
         ]
           .map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`)
           .join(",")
@@ -161,7 +275,7 @@ export function TenderDataGrid({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "adhunik-tenders.csv";
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -191,7 +305,7 @@ export function TenderDataGrid({
         </label>
         <select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
-          {leadStatuses.map((item) => <option key={item}>{item}</option>)}
+          {leadStatuses.map((item) => <option key={item.id} value={leadStatusEnumFromName(item.status_name)}>{item.status_name}</option>)}
         </select>
         <select className={inputClass} value={source} onChange={(event) => setSource(event.target.value)}>
           <option value="">All sources</option>
@@ -218,9 +332,19 @@ export function TenderDataGrid({
           {error instanceof Error ? error.message : "Tender records could not be loaded."}
         </div>
       )}
+      {canAssign && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-slate-50 p-3 text-sm">
+          <span className="font-semibold text-navy-900">{selectedIds.length} selected</span>
+          <Button variant="secondary" className="h-8 px-3 text-xs" disabled={!selectedIds.length} onClick={() => setBulkAction("assign")}>Assign Selected</Button>
+          <Button variant="secondary" className="h-8 px-3 text-xs" disabled={!selectedIds.length} onClick={() => setBulkAction("unassign")}>Unassign Selected</Button>
+          {canDelete && <Button variant="danger" className="h-8 px-3 text-xs" disabled={!selectedIds.length} onClick={() => setBulkAction("delete")}>Delete Selected</Button>}
+          <Button variant="secondary" className="h-8 px-3 text-xs" disabled={!selectedIds.length} onClick={exportSelectedCsv}>Export Selected</Button>
+        </div>
+      )}
       <div className="relative w-full overflow-x-auto table-scroll">
-        <table className="w-full min-w-[1960px] table-fixed text-left text-xs">
+        <table className="w-full min-w-[2000px] table-fixed text-left text-xs">
           <colgroup>
+            <col className="w-[40px]" />
             <col className="w-[8.5rem]" />
             <col className="w-[350px] min-w-[350px]" />
             <col className="w-[6.5rem]" />
@@ -238,7 +362,9 @@ export function TenderDataGrid({
           <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase text-slate-500 shadow-sm">
             <tr>
               {tableHeaders.map((head) => (
-                <th className={head.className} key={head.label}>{head.label}</th>
+                <th className={head.className} key={head.label || "select"}>
+                  {head.label ? head.label : <input type="checkbox" checked={allPageSelected} onChange={toggleSelectAll} aria-label="Select all tenders on page" />}
+                </th>
               ))}
             </tr>
           </thead>
@@ -253,15 +379,18 @@ export function TenderDataGrid({
                 </td>
               </tr>
             )}
-            {!isLoading && !filtered.length && (
+            {!isLoading && !tenders.length && (
               <tr>
                 <td className="px-3 py-10 text-center text-slate-600" colSpan={tableColumnCount}>
                   No tender records found.
                 </td>
               </tr>
             )}
-            {filtered.map((tender) => (
+            {tenders.map((tender) => (
               <tr key={tender.id} className="group border-t border-border align-middle transition hover:bg-slate-50">
+                <td className="px-2 py-1.5">
+                  <input type="checkbox" checked={selectedIds.includes(tender.id)} onChange={() => toggleSelected(tender.id)} aria-label={`Select tender ${tender.tender_id}`} />
+                </td>
                 <td className="px-2 py-1.5 font-semibold text-navy-900" title={tender.tender_id}>
                   <span className="block truncate">{tender.tender_id}</span>
                 </td>
@@ -287,7 +416,7 @@ export function TenderDataGrid({
                   <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} />
                 </td>
                 <td className={stickyStatusCellClass}>
-                  <StatusBadge status={tender.lead_status} />
+                  <LeadStageBadge tender={tender} leadStatuses={leadStatuses} />
                 </td>
                 <td className={stickySourceCellClass}>
                   <SourceTypeBadge sourceType={tender.source_type} />
@@ -319,6 +448,25 @@ export function TenderDataGrid({
           </tbody>
         </table>
       </div>
+      <div className="flex flex-col gap-3 border-t border-border pt-4 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <span>Showing {showingFrom}-{showingTo} of {totalTenders} tenders</span>
+          <select className="h-9 rounded-md border border-border px-2 text-sm" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+            {[10, 25, 50, 100].map((size) => (
+              <option key={size} value={size}>{size}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" className="h-9" disabled={page <= 1 || isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>{"<< Previous"}</Button>
+          {pageNumbers.map((pageNumber) => (
+            <Button key={pageNumber} variant={pageNumber === page ? "primary" : "secondary"} className="h-9 min-w-9 px-3" disabled={isFetching} onClick={() => setPage(pageNumber)}>
+              {pageNumber}
+            </Button>
+          ))}
+          <Button variant="secondary" className="h-9" disabled={page >= totalPages || isFetching} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>{"Next >>"}</Button>
+        </div>
+      </div>
     </Card>
     <ConfirmDeleteModal
       tender={deleteTarget}
@@ -332,6 +480,22 @@ export function TenderDataGrid({
       }}
       onConfirm={confirmDelete}
     />
+    <BulkActionModal
+      action={bulkAction}
+      count={selectedIds.length}
+      users={users}
+      assignedTo={bulkAssignedTo}
+      error={bulkError}
+      isPending={isBulkPending}
+      onAssignedToChange={setBulkAssignedTo}
+      onCancel={() => {
+        if (!isBulkPending) {
+          setBulkAction(null);
+          setBulkError("");
+        }
+      }}
+      onConfirm={runBulkAction}
+    />
     <TenderEditModal
       tender={editTarget}
       users={users}
@@ -344,7 +508,7 @@ export function TenderDataGrid({
         await queryClient.invalidateQueries({ queryKey: ["tender-details"] });
       }}
     />
-    <TenderDetailsDrawer tender={openTender} userById={userById} users={users} canAssign={canAssign} currentUserId={currentUserId} onClose={() => setOpenTender(null)} />
+    <TenderDetailsDrawer tender={openTender} userById={userById} users={users} leadStatuses={leadStatuses} canAssign={canAssign} currentUserId={currentUserId} onClose={() => setOpenTender(null)} />
     </>
   );
 }
@@ -352,6 +516,12 @@ export function TenderDataGrid({
 function canEditTenderClient(tender: Tender, currentUserId: string | null, role: Role | null) {
   if (!currentUserId || !role) return false;
   return role === "ADMIN" || role === "MANAGER" || tender.uploaded_by === currentUserId || tender.assigned_to === currentUserId;
+}
+
+function getPageNumbers(currentPage: number, totalPages: number) {
+  const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
+  const end = Math.min(totalPages, start + 4);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 function ConfirmDeleteModal({
@@ -391,6 +561,66 @@ function ConfirmDeleteModal({
           <Button type="button" variant="danger" onClick={onConfirm} disabled={isPending}>
             {isPending ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
             Delete
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkActionModal({
+  action,
+  count,
+  users,
+  assignedTo,
+  error,
+  isPending,
+  onAssignedToChange,
+  onCancel,
+  onConfirm
+}: {
+  action: "assign" | "unassign" | "delete" | null;
+  count: number;
+  users: Profile[];
+  assignedTo: string;
+  error: string;
+  isPending: boolean;
+  onAssignedToChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!action) return null;
+  const title = action === "assign" ? "Assign selected tenders?" : action === "unassign" ? "Unassign selected tenders?" : "Delete selected tenders?";
+  const requiresAssignee = action === "assign";
+
+  return (
+    <div className="fixed inset-0 z-[62] grid place-items-center bg-slate-950/40 px-4">
+      <div className="w-full max-w-md rounded-lg border border-border bg-white p-5 shadow-lift">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-700">
+            <AlertTriangle size={20} />
+          </span>
+          <div>
+            <h2 className="text-lg font-bold text-navy-900">{title}</h2>
+            <p className="mt-1 text-sm text-slate-600">This operation will apply to {count} selected tender{count === 1 ? "" : "s"} and create audit history.</p>
+          </div>
+        </div>
+        {requiresAssignee && (
+          <Field label="Assign To">
+            <select className={inputClass} value={assignedTo} onChange={(event) => onAssignedToChange(event.target.value)}>
+              <option value="">Select user</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>{formatAssignableUserOption(user)}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {error && <p className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={isPending}>Cancel</Button>
+          <Button type="button" variant={action === "delete" ? "danger" : "primary"} onClick={onConfirm} disabled={isPending || (requiresAssignee && !assignedTo)}>
+            {isPending ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+            Confirm
           </Button>
         </div>
       </div>
@@ -722,18 +952,6 @@ function AssignmentBadge({ tender, userById, currentUserId }: { tender: Tender; 
   );
 }
 
-function StatusBadge({ status }: { status: Tender["lead_status"] }) {
-  return <Badge tone={statusTone(status)}>{status}</Badge>;
-}
-
-function statusTone(status: Tender["lead_status"]) {
-  if (status === "WON") return "green";
-  if (status === "LOST") return "red";
-  if (status === "FOLLOW_UP" || status === "NEGOTIATION") return "orange";
-  if (status === "ASSIGNED" || status === "CONTACTED" || status === "QUOTATION_SENT") return "blue";
-  return "slate";
-}
-
 function AssignForm({ tender, users }: { tender: Tender; users: Profile[] }) {
   return (
     <form action={assignLeadAction} className="flex gap-2">
@@ -752,27 +970,11 @@ function AssignForm({ tender, users }: { tender: Tender; users: Profile[] }) {
   );
 }
 
-function StatusForm({ tender }: { tender: Tender }) {
-  return (
-    <form action={updateLeadStatusAction} className="flex gap-2">
-      <input type="hidden" name="tenderId" value={tender.id} />
-      <input type="hidden" name="notes" value="Status updated from tender grid" />
-      <select name="status" defaultValue={tender.lead_status} className="h-8 rounded-md border border-border px-2 text-xs">
-        {leadStatuses.map((item) => (
-          <option key={item}>{item}</option>
-        ))}
-      </select>
-      <Button variant="secondary" className="h-8 px-2" title="Update status">
-        <CheckCircle2 size={15} />
-      </Button>
-    </form>
-  );
-}
-
 function TenderDetailsDrawer({
   tender,
   userById,
   users,
+  leadStatuses,
   canAssign,
   currentUserId,
   onClose
@@ -780,6 +982,7 @@ function TenderDetailsDrawer({
   tender: Tender | null;
   userById: Map<string, Profile>;
   users: Profile[];
+  leadStatuses: LeadStatusMaster[];
   canAssign: boolean;
   currentUserId: string | null;
   onClose: () => void;
@@ -807,6 +1010,7 @@ function TenderDetailsDrawer({
       >
         {tender && (
           <div className="space-y-5 p-5 sm:p-6">
+            <div className="sticky top-0 z-10 -mx-5 -mt-5 border-b border-border bg-white/95 px-5 pb-4 pt-5 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Tender Details</p>
@@ -819,7 +1023,7 @@ function TenderDetailsDrawer({
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <StatusBadge status={tender.lead_status} />
+              <LeadStageBadge tender={tender} leadStatuses={leadStatuses} />
               <SourceTypeBadge sourceType={tender.source_type} />
               <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} />
             </div>
@@ -830,13 +1034,14 @@ function TenderDetailsDrawer({
               <MetricTile label="Contract Date" value={<ContractDate tender={tender} />} />
             </div>
 
-            <div className="flex gap-2 border-b border-border">
+            <div className="flex gap-2">
               <button className={`px-3 py-2 text-sm font-bold ${activeTab === "details" ? "border-b-2 border-navy-900 text-navy-900" : "text-slate-500"}`} onClick={() => setActiveTab("details")}>
                 Details
               </button>
               <button className={`px-3 py-2 text-sm font-bold ${activeTab === "history" ? "border-b-2 border-navy-900 text-navy-900" : "text-slate-500"}`} onClick={() => setActiveTab("history")}>
                 Tender History
               </button>
+            </div>
             </div>
 
             {activeTab === "details" ? (
@@ -846,6 +1051,34 @@ function TenderDetailsDrawer({
                     <AssignForm tender={tender} users={users} />
                   </Section>
                 )}
+
+                <Section title="Lead Stage">
+                  <LeadStageForm tender={tender} leadStatuses={leadStatuses} />
+                </Section>
+
+                <Section title="Lead Remarks">
+                  <LeadRemarkForm tender={tender} />
+                  {isLoading ? (
+                    <LoadingSkeleton rows={2} />
+                  ) : details.remarks.length ? (
+                    <div className="mt-4 space-y-3">
+                      {details.remarks.map((remark) => (
+                        <TimelineItem
+                          key={remark.id}
+                          icon={<Pencil size={15} />}
+                          title="Remark Added"
+                          detail={
+                            <>
+                              {remark.user?.full_name || remark.user?.email || "Unknown"} - <DateTime value={remark.created_at} /> - {remark.remark}
+                            </>
+                          }
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-4"><EmptyDrawerState>No remarks yet</EmptyDrawerState></div>
+                  )}
+                </Section>
 
                 <Section title="Assignment Information">
                   <AssignmentInfo tender={tender} details={details} userById={userById} currentUserId={currentUserId} />
@@ -897,6 +1130,18 @@ function TenderDetailsDrawer({
                     <TimelineItem icon={<FileText size={15} />} title="Tender created" detail={<DateTime value={tender.created_at} />} />
                     <TimelineItem icon={<CalendarClock size={15} />} title="Last updated" detail={<DateTime value={tender.updated_at ?? tender.created_at} />} />
                     <TimelineItem icon={<UserRound size={15} />} title="Assignment status" detail={assignedToLabel(tender, userById)} />
+                    {details.statusHistory.map((history) => (
+                      <TimelineItem
+                        key={history.id}
+                        icon={<CheckCircle2 size={15} />}
+                        title="Lead Stage Changed"
+                        detail={
+                          <>
+                            {history.user?.full_name || history.user?.email || "Unknown"} - <DateTime value={history.created_at} /> - {history.old_status?.status_name || "No Status"} to {history.new_status?.status_name || "No Status"} - {history.remarks || "No remarks"}
+                          </>
+                        }
+                      />
+                    ))}
                     {isLoading && <LoadingSkeleton rows={3} />}
                     {!isLoading && !details.activities.length && <EmptyDrawerState>No activities available</EmptyDrawerState>}
                     {details.activities.map((activity) => (
@@ -996,13 +1241,17 @@ type TenderDetails = {
   followUps: TenderFollowUp[];
   activities: LeadActivity[];
   auditLogs: AuditLog[];
+  remarks: LeadRemark[];
+  statusHistory: LeadStatusHistory[];
 };
 
 const emptyTenderDetails: TenderDetails = {
   assignments: [],
   followUps: [],
   activities: [],
-  auditLogs: []
+  auditLogs: [],
+  remarks: [],
+  statusHistory: []
 };
 
 function AssignmentInfo({
@@ -1037,6 +1286,109 @@ function AssignmentInfo({
   );
 }
 
+function LeadStageBadge({ tender, leadStatuses }: { tender: Tender; leadStatuses: LeadStatusMaster[] }) {
+  const statusName = leadStageLabel(tender);
+  const masterStatus = leadStatuses.find((status) => status.status_name === statusName);
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold text-white"
+      style={{ backgroundColor: masterStatus?.status_color || tender.lead_stage?.status_color || "#173b71" }}
+    >
+      {statusName}
+    </span>
+  );
+}
+
+function LeadStageForm({ tender, leadStatuses }: { tender: Tender; leadStatuses: LeadStatusMaster[] }) {
+  const [selectedStatusId, setSelectedStatusId] = useState(() => selectedLeadStatusId(tender, leadStatuses));
+  const [stageError, setStageError] = useState("");
+
+  useEffect(() => {
+    setSelectedStatusId(selectedLeadStatusId(tender, leadStatuses));
+  }, [tender.id, tender.lead_status, leadStatuses]);
+
+  async function submitLeadStage(formData: FormData) {
+    setStageError("");
+    const result = await updateLeadStageAction(formData);
+    if (result?.error) setStageError(result.error);
+  }
+
+  return (
+    <form action={submitLeadStage} className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="tenderId" value={tender.id} />
+      <Field label="Current Lead Stage">
+        <select name="statusId" className={inputClass} value={selectedStatusId} onChange={(event) => setSelectedStatusId(event.target.value)}>
+          {leadStatuses.map((status) => (
+            <option key={status.id} value={status.id}>{status.status_name}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Next Follow-Up Date">
+        <input name="followUpDate" type="datetime-local" className={inputClass} />
+      </Field>
+      <Field label="Reminder Notes">
+        <input name="reminderNotes" className={inputClass} placeholder="Optional reminder" />
+      </Field>
+      <Field label="Status Remark">
+        <input name="statusRemark" className={inputClass} placeholder="Reason or note for this stage change" required />
+      </Field>
+      {stageError && <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700 sm:col-span-2">{stageError}</p>}
+      <div className="flex items-end sm:col-span-2">
+        <Button disabled={!selectedStatusId || selectedStatusId.startsWith("fallback-")}>
+          <CheckCircle2 size={16} />
+          Update Stage
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function LeadRemarkForm({ tender }: { tender: Tender }) {
+  return (
+    <form action={addLeadRemarkAction} className="flex flex-col gap-2 sm:flex-row">
+      <input type="hidden" name="tenderId" value={tender.id} />
+      <input name="remark" className={`${inputClass} flex-1`} placeholder="Add lead remark" required />
+      <Button>
+        <Pencil size={16} />
+        Add Remark
+      </Button>
+    </form>
+  );
+}
+
+function leadStageLabel(tender: Tender) {
+  return tender.lead_stage?.status_name || leadStatusNameFromEnum(tender.lead_status);
+}
+
+function selectedLeadStatusId(tender: Tender, leadStatuses: LeadStatusMaster[]) {
+  const statusName = leadStageLabel(tender);
+  return leadStatuses.find((status) => status.status_name === statusName)?.id ?? leadStatuses[0]?.id ?? "";
+}
+
+function leadStatusNameFromEnum(status: Tender["lead_status"] | null | undefined) {
+  const labels: Record<NonNullable<Tender["lead_status"]>, string> = {
+    NEW: "New Lead",
+    ASSIGNED: "New Lead",
+    CONTACTED: "Contacted",
+    FOLLOW_UP: "Follow Up Required",
+    QUOTATION_SENT: "Quotation Sent",
+    NEGOTIATION: "Price Negotiation",
+    WON: "Order Received",
+    LOST: "Lost To Competitor"
+  };
+  return status ? labels[status] : "No Status";
+}
+
+function leadStatusEnumFromName(statusName: string) {
+  if (statusName === "Order Received") return "WON";
+  if (statusName === "Lost To Competitor" || statusName === "No Requirement" || statusName === "Closed") return "LOST";
+  if (statusName === "Quotation Sent") return "QUOTATION_SENT";
+  if (statusName === "Price Negotiation") return "NEGOTIATION";
+  if (statusName === "Follow Up Required" || statusName === "On Hold") return "FOLLOW_UP";
+  if (["First Contact", "Contacted", "Requirement Received", "BOQ Requested", "BOQ Received", "Technical Discussion", "Sample Submitted", "PI Sent", "PI Waiting Approval", "Order Expected", "Not Reachable"].includes(statusName)) return "CONTACTED";
+  return "NEW";
+}
+
 function useTenderDetails(tenderUuid?: string) {
   return useQuery({
     queryKey: ["tender-details", tenderUuid],
@@ -1057,10 +1409,46 @@ function useTenderDetails(tenderUuid?: string) {
         assignments: await fetchAssignmentHistory(supabase, tenderUuid, currentProfile),
         followUps: await fetchTenderFollowUps(supabase, tenderUuid, currentProfile),
         activities: await fetchActivityTimeline(supabase, tenderUuid, currentProfile),
-        auditLogs: await getTenderHistoryAction(tenderUuid)
+        auditLogs: await getTenderHistoryAction(tenderUuid),
+        remarks: await fetchLeadRemarks(supabase, tenderUuid, currentProfile),
+        statusHistory: await fetchLeadStatusHistory(supabase, tenderUuid, currentProfile)
       };
     }
   });
+}
+
+async function fetchLeadStatusHistory(supabase: SupabaseBrowserClient, tenderUuid: string, profile: Pick<Profile, "id" | "role"> | null): Promise<LeadStatusHistory[]> {
+  let query = supabase
+    .from("lead_status_history")
+    .select("*, tender:tenders!lead_status_history_tender_id_fkey(id), new_status:lead_status_master!lead_status_history_status_id_fkey(status_name,status_color), user:profiles!lead_status_history_updated_by_fkey(full_name,email)")
+    .eq("tender_id", tenderUuid)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (profile?.role === "USER") query = query.eq("updated_by", profile.id);
+  const { data, error } = await query;
+  if (error) {
+    console.error("[TenderDetails] lead status history error:", error.message, error);
+    return [];
+  }
+  return (data ?? []) as LeadStatusHistory[];
+}
+
+async function fetchLeadRemarks(supabase: SupabaseBrowserClient, tenderUuid: string, profile: Pick<Profile, "id" | "role"> | null): Promise<LeadRemark[]> {
+  let query = supabase
+    .from("lead_remarks")
+    .select("*, tender:tenders!lead_remarks_tender_id_fkey(id), user:profiles!lead_remarks_user_id_fkey(full_name,email)")
+    .eq("tender_id", tenderUuid)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (profile?.role === "USER") query = query.eq("user_id", profile.id);
+  const { data, error } = await query;
+  if (error) {
+    console.error("[TenderDetails] lead remarks error:", error.message, error);
+    return [];
+  }
+  return (data ?? []) as LeadRemark[];
 }
 
 type SupabaseBrowserClient = ReturnType<typeof createClient>;
@@ -1123,9 +1511,16 @@ async function fetchActivityTimeline(supabase: SupabaseBrowserClient, tenderUuid
 }
 
 function historyTitle(log: AuditLog) {
-  const field = historyFieldName(log).replaceAll("_", " ");
-  if (log.action === "REPLACE_ATTACHMENT") return `Attachment updated: ${field}`;
-  if (log.action === "DELETE_ATTACHMENT") return `Attachment deleted: ${field}`;
+  const field = formatHistoryFieldName(historyFieldName(log));
+  if (log.action === "TENDER_EDITED") return `Tender Edited: ${field}`;
+  if (log.action === "UPLOAD_ATTACHMENT") return `${field} Uploaded`;
+  if (log.action === "REPLACE_ATTACHMENT") return `${field} Replaced`;
+  if (log.action === "DELETE_ATTACHMENT") return `${field} Deleted`;
+  if (log.action === "ASSIGNMENT_CHANGED") return "Assignment Changed";
+  if (log.action === "STATUS_CHANGED") return "Status Changed";
+  if (log.action === "BULK_ASSIGN") return "Bulk Assignment Changed";
+  if (log.action === "BULK_UNASSIGN") return "Bulk Assignment Cleared";
+  if (log.action === "BULK_DELETE") return "Bulk Tender Deleted";
   if (log.action === "DELETE_TENDER") return "Tender deleted";
   if (log.action === "RESTORE_TENDER") return "Tender restored";
   return `Updated ${field}`;
@@ -1140,6 +1535,21 @@ function historyValue(data: AuditLog["old_data"]) {
   if (!data) return "-";
   if ("value" in data) return String(data.value ?? "-");
   return JSON.stringify(data);
+}
+
+function formatHistoryFieldName(fieldName: string) {
+  const labels: Record<string, string> = {
+    boq_attachment_name: "BOQ",
+    boq_attachment_url: "BOQ",
+    aoc_attachment_name: "AOC",
+    aoc_attachment_url: "AOC",
+    tender_document_attachment_name: "Tender Document",
+    tender_document_url: "Tender Document",
+    tender_ref_no: "Tender Ref No",
+    lead_status: "Lead Stage",
+    assigned_to: "Assigned To"
+  };
+  return labels[fieldName] ?? fieldName.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function MetricTile({ label, value }: { label: string; value: React.ReactNode }) {

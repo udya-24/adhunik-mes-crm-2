@@ -1,6 +1,5 @@
 import { ContractDate } from "@/components/common/contract-date";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import type { Tender } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 import { ArrowRight } from "lucide-react";
@@ -46,7 +45,11 @@ export function TenderSnapshot({ tenders }: { tenders: Tender[] }) {
                 <td className="px-3 py-3">{tender.bidder_name || "-"}</td>
                 <td className="px-3 py-3"><ContractDate tender={tender} /></td>
                 <td className="px-3 py-3">{formatCurrency(tender.awarded_value)}</td>
-                <td className="px-3 py-3"><Badge tone={statusTone(tender.lead_status)}>{tender.lead_status}</Badge></td>
+                <td className="px-3 py-3">
+                  <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-bold text-white" style={{ backgroundColor: tender.lead_stage?.status_color || "#173b71" }}>
+                    {tender.lead_stage?.status_name || leadStatusNameFromEnum(tender.lead_status)}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -56,10 +59,16 @@ export function TenderSnapshot({ tenders }: { tenders: Tender[] }) {
   );
 }
 
-function statusTone(status: Tender["lead_status"]) {
-  if (status === "WON") return "green";
-  if (status === "LOST") return "red";
-  if (status === "FOLLOW_UP" || status === "NEGOTIATION") return "orange";
-  if (status === "ASSIGNED" || status === "CONTACTED") return "blue";
-  return "slate";
+function leadStatusNameFromEnum(status: Tender["lead_status"] | null | undefined) {
+  const labels: Record<NonNullable<Tender["lead_status"]>, string> = {
+    NEW: "New Lead",
+    ASSIGNED: "New Lead",
+    CONTACTED: "Contacted",
+    FOLLOW_UP: "Follow Up Required",
+    QUOTATION_SENT: "Quotation Sent",
+    NEGOTIATION: "Price Negotiation",
+    WON: "Order Received",
+    LOST: "Lost To Competitor"
+  };
+  return status ? labels[status] : "No Status";
 }

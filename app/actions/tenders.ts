@@ -22,6 +22,32 @@ function canEditTender(profile: { id: string; role: string }, tender: { uploaded
   return profile.role === "ADMIN" || profile.role === "MANAGER" || tender.uploaded_by === profile.id || tender.assigned_to === profile.id;
 }
 
+function leadStatusEnumFromName(statusName: string) {
+  if (statusName === "Order Received") return "WON";
+  if (statusName === "Lost To Competitor" || statusName === "No Requirement" || statusName === "Closed") return "LOST";
+  if (statusName === "Quotation Sent") return "QUOTATION_SENT";
+  if (statusName === "Price Negotiation") return "NEGOTIATION";
+  if (statusName === "Follow Up Required" || statusName === "On Hold") return "FOLLOW_UP";
+  if (["First Contact", "Contacted", "Requirement Received", "BOQ Requested", "BOQ Received", "Technical Discussion", "Sample Submitted", "PI Sent", "PI Waiting Approval", "Order Expected", "Not Reachable"].includes(statusName)) return "CONTACTED";
+  return "NEW";
+}
+
+async function canUpdateLeadPipeline(
+  supabase: ReturnType<typeof createAdminClient>,
+  profile: { id: string; role: string },
+  tender: { uploaded_by: string | null; assigned_to: string | null }
+) {
+  if (profile.role === "ADMIN") return true;
+  if (profile.role === "USER") return tender.assigned_to === profile.id;
+  if (profile.role !== "MANAGER") return false;
+  if (tender.uploaded_by === profile.id || tender.assigned_to === profile.id) return true;
+  const userIds = [tender.assigned_to, tender.uploaded_by].filter((id): id is string => Boolean(id));
+  if (!userIds.length) return false;
+  const { data, error } = await supabase.from("profiles").select("id").in("id", userIds).eq("manager_id", profile.id).limit(1);
+  if (error) throw new Error(error.message);
+  return Boolean(data?.length);
+}
+
 async function assertCanAssignToProfile(
   supabase: ReturnType<typeof createAdminClient>,
   profile: Pick<Profile, "id" | "role">,
@@ -75,6 +101,7 @@ export async function createTenderAction(input: FormData | ManualTenderInsert) {
     tender_document_attachment_name: emptyToNull(payload.tender_document_attachment_name),
     tender_document_url: emptyToNull(payload.tender_document_url),
     uploaded_by: profile.id,
+    lead_status: "NEW" as const,
     source_type: "MANUAL_ENTRY" as const
   };
   const { data: duplicate, error: duplicateError } = await supabase
@@ -110,7 +137,7 @@ export async function bulkImportTendersAction(rows: unknown[], fileName: string)
   const tenderIds = parsed.map((row) => row.tender_id);
   const { data: existing } = await supabase.from("tenders").select("tender_id").in("tender_id", tenderIds);
   const duplicateIds = new Set((existing ?? []).map((row) => row.tender_id));
-  const inserts = parsed.filter((row) => !duplicateIds.has(row.tender_id)).map((row) => ({ ...row, uploaded_by: profile.id }));
+  const inserts = parsed.filter((row) => !duplicateIds.has(row.tender_id)).map((row) => ({ ...row, uploaded_by: profile.id, lead_status: "NEW" as const }));
 
   const { error } = inserts.length ? await supabase.from("tenders").insert(inserts) : { error: null };
   if (error) return { error: error.message };
@@ -226,16 +253,21 @@ export async function updateTenderAction(input: TenderUpdateInput) {
     .map((field) => {
       const oldValue = normalizeAuditValue(existing[field]);
       const newValue = normalizeAuditValue(updates[field as keyof typeof updates]);
+      const isAttachment = isAttachmentField(field);
       return {
         table_name: "tenders",
         record_id: rawPayload.id,
         user_id: profile.id,
         action:
-          isAttachmentField(field) && newValue === null
+          field === "assigned_to"
+            ? "ASSIGNMENT_CHANGED"
+            : isAttachment && newValue === null
             ? "DELETE_ATTACHMENT"
-            : isAttachmentField(field)
-              ? "REPLACE_ATTACHMENT"
-              : "UPDATE_TENDER",
+            : isAttachment && oldValue === null && newValue !== null
+              ? "UPLOAD_ATTACHMENT"
+              : isAttachment
+                ? "REPLACE_ATTACHMENT"
+                : "TENDER_EDITED",
         old_data: { field_name: field, value: oldValue },
         new_data: { field_name: field, value: newValue }
       };
@@ -339,7 +371,6 @@ export async function assignLeadAction(formData: FormData) {
     .update({
       assigned_to: payload.assignedTo,
       assigned_by: profile.id,
-      lead_status: "ASSIGNED",
       updated_at: utcNowISOString()
     })
     .eq("id", payload.tenderId)
@@ -364,22 +395,197 @@ export async function assignLeadAction(formData: FormData) {
   revalidatePath("/assignments");
 }
 
-export async function updateLeadStatusAction(formData: FormData) {
-  const profile = await getCurrentProfile();
-  if (!profile) throw new Error("Not authenticated");
-  const tenderId = String(formData.get("tenderId"));
-  const status = String(formData.get("status"));
-  const notes = String(formData.get("notes") ?? "");
-  const supabase = await createClient();
-  const { error } = await supabase.from("tenders").update({ lead_status: status, updated_at: utcNowISOString() }).eq("id", tenderId).eq("is_deleted", false);
+export async function bulkTenderAction(input: { tenderIds: string[]; action: "assign" | "unassign" | "delete"; assignedTo?: string | null }) {
+  const profile = await requireRole(input.action === "delete" ? ["ADMIN"] : ["ADMIN", "MANAGER"]);
+  const tenderIds = Array.from(new Set(input.tenderIds.filter(Boolean)));
+  if (!tenderIds.length) throw new Error("Select at least one tender.");
+
+  const supabase = createAdminClient();
+  const { data: tenders, error: fetchError } = await supabase
+    .from("tenders")
+    .select("*")
+    .in("id", tenderIds)
+    .eq("is_deleted", false);
+
+  if (fetchError) throw new Error(fetchError.message);
+  if (!tenders?.length) throw new Error("No active tenders found for bulk operation.");
+
+  const now = utcNowISOString();
+  if (input.action === "assign") {
+    if (!input.assignedTo) throw new Error("Choose a user before assigning selected tenders.");
+    await assertCanAssignToProfile(supabase, profile, input.assignedTo);
+
+    const { error } = await supabase
+      .from("tenders")
+      .update({ assigned_to: input.assignedTo, assigned_by: profile.id, updated_at: now })
+      .in("id", tenders.map((tender) => tender.id));
+    if (error) throw new Error(error.message);
+
+    await supabase.from("lead_assignments").insert(
+      tenders.map((tender) => ({
+        tender_id: tender.id,
+        assigned_to: input.assignedTo,
+        assigned_by: profile.id,
+        remarks: "Bulk assigned"
+      }))
+    );
+  }
+
+  if (input.action === "unassign") {
+    const { error } = await supabase
+      .from("tenders")
+      .update({ assigned_to: null, assigned_by: profile.id, updated_at: now })
+      .in("id", tenders.map((tender) => tender.id));
+    if (error) throw new Error(error.message);
+  }
+
+  if (input.action === "delete") {
+    const { error } = await supabase
+      .from("tenders")
+      .update({ is_deleted: true, deleted_at: now, deleted_by: profile.id, updated_at: now })
+      .in("id", tenders.map((tender) => tender.id));
+    if (error) throw new Error(error.message);
+  }
+
+  await supabase.from("lead_activities").insert(
+    tenders.map((tender) => ({
+      tender_id: tender.id,
+      user_id: profile.id,
+      activity_type: `BULK_${input.action.toUpperCase()}`,
+      activity_notes: `Bulk ${input.action} operation`
+    }))
+  );
+
+  await supabase.from("audit_logs").insert(
+    tenders.map((tender) => ({
+      table_name: "tenders",
+      record_id: tender.id,
+      user_id: profile.id,
+      action: `BULK_${input.action.toUpperCase()}`,
+      old_data: tender,
+      new_data: {
+        action: input.action,
+        assigned_to: input.action === "assign" ? input.assignedTo : input.action === "unassign" ? null : tender.assigned_to,
+        deleted_at: input.action === "delete" ? now : tender.deleted_at
+      }
+    }))
+  );
+
+  revalidateTenderPaths();
+  return { ok: true, count: tenders.length };
+}
+
+export async function updateLeadStageAction(formData: FormData) {
+  const profile = await requireRole(["ADMIN", "MANAGER", "USER"]);
+  const tenderId = String(formData.get("tenderId") || "");
+  const statusId = String(formData.get("statusId") || "");
+  if (!tenderId || !statusId) return { error: "Tender and lead stage are required." };
+
+  const supabase = createAdminClient();
+  const [{ data: tender, error: tenderError }, { data: nextStatus, error: statusError }] = await Promise.all([
+    supabase.from("tenders").select("id,uploaded_by,assigned_to,lead_status").eq("id", tenderId).eq("is_deleted", false).maybeSingle(),
+    supabase.from("lead_status_master").select("*").eq("id", statusId).eq("is_active", true).maybeSingle()
+  ]);
+  if (tenderError) return { error: tenderError.message };
+  if (statusError) return { error: statusError.message };
+  if (!tender) return { error: "Tender not found" };
+  if (!nextStatus) return { error: "Lead stage not found" };
+  if (!(await canUpdateLeadPipeline(supabase, profile, tender))) throw new Error("You do not have permission to update this lead stage.");
+
+  const followUpDate = String(formData.get("followUpDate") || "");
+  const reminderNotes = String(formData.get("reminderNotes") || "").trim();
+  const statusRemark = String(formData.get("statusRemark") || "").trim();
+  if (!statusRemark) return { error: "Status remark is required." };
+  const nextLeadStatus = leadStatusEnumFromName(nextStatus.status_name);
+
+  const updates = {
+    lead_status: nextLeadStatus,
+    updated_at: utcNowISOString()
+  };
+
+  const { error: updateError } = await supabase.from("tenders").update(updates).eq("id", tenderId);
+  if (updateError) return { error: updateError.message };
+
+  const oldStatusLabel = tender.lead_status || "NEW";
+
+  const { error: statusHistoryError } = await supabase.from("lead_status_history").insert({
+    tender_id: tenderId,
+    status_id: statusId,
+    updated_by: profile.id,
+    remarks: statusRemark
+  });
+  if (statusHistoryError) return { error: statusHistoryError.message };
+
+  const { error: remarkError } = await supabase.from("lead_remarks").insert({
+    tender_id: tenderId,
+    user_id: profile.id,
+    remark: statusRemark
+  });
+  if (remarkError) return { error: remarkError.message };
+
+  if (followUpDate) {
+    const { error: followUpError } = await supabase.from("follow_ups").insert({
+      tender_id: tenderId,
+      user_id: profile.id,
+      follow_up_date: followUpDate,
+      remarks: reminderNotes || "Lead follow-up",
+      status: nextLeadStatus
+    });
+    if (followUpError) return { error: followUpError.message };
+  }
+
+  const { error: activityError } = await supabase.from("lead_activities").insert({
+    tender_id: tenderId,
+    user_id: profile.id,
+    activity_type: "LEAD_STAGE_CHANGED",
+    activity_notes: `${oldStatusLabel} -> ${nextStatus.status_name}${reminderNotes ? ` | ${reminderNotes}` : ""}`
+  });
+  if (activityError) return { error: activityError.message };
+
+  const { error: auditError } = await supabase.from("audit_logs").insert({
+    table_name: "tenders",
+    record_id: tenderId,
+    user_id: profile.id,
+    action: "LEAD_STAGE_CHANGED",
+    old_data: { field_name: "lead_status", value: tender.lead_status, label: oldStatusLabel },
+    new_data: { field_name: "lead_status", value: nextLeadStatus, label: nextStatus.status_name }
+  });
+  if (auditError) return { error: auditError.message };
+
+  revalidateTenderPaths();
+  return { ok: true };
+}
+
+export async function addLeadRemarkAction(formData: FormData) {
+  const profile = await requireRole(["ADMIN", "MANAGER", "USER"]);
+  const tenderId = String(formData.get("tenderId") || "");
+  const remark = String(formData.get("remark") || "").trim();
+  if (!tenderId || !remark) throw new Error("Remark is required.");
+
+  const supabase = createAdminClient();
+  const { data: tender, error: tenderError } = await supabase.from("tenders").select("uploaded_by,assigned_to").eq("id", tenderId).eq("is_deleted", false).maybeSingle();
+  if (tenderError) throw new Error(tenderError.message);
+  if (!tender) throw new Error("Tender not found.");
+  if (!(await canUpdateLeadPipeline(supabase, profile, tender))) throw new Error("You do not have permission to add remarks for this lead.");
+
+  const { error } = await supabase.from("lead_remarks").insert({ tender_id: tenderId, user_id: profile.id, remark });
   if (error) throw new Error(error.message);
   await supabase.from("lead_activities").insert({
     tender_id: tenderId,
     user_id: profile.id,
-    activity_type: "UPDATED",
-    activity_notes: notes || `Status changed to ${status}`
+    activity_type: "REMARK_ADDED",
+    activity_notes: remark
   });
-  revalidatePath("/tenders");
+  await supabase.from("audit_logs").insert({
+    table_name: "lead_remarks",
+    record_id: tenderId,
+    user_id: profile.id,
+    action: "REMARK_ADDED",
+    old_data: null,
+    new_data: { remark }
+  });
+
+  revalidateTenderPaths();
 }
 
 export async function deleteTenderAction(tenderId: string) {

@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 
 export const roles = ["ADMIN", "MANAGER", "USER"] as const;
-export const leadStatuses = ["NEW", "ASSIGNED", "CONTACTED", "FOLLOW_UP", "QUOTATION_SENT", "NEGOTIATION", "WON", "LOST"] as const;
 export const sourceTypes = ["EXCEL_UPLOAD", "MANUAL_ENTRY"] as const;
 
 export const navItems = [

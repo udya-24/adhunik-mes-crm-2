@@ -1,8 +1,8 @@
-import type { leadStatuses, roles, sourceTypes } from "@/lib/constants";
+import type { roles, sourceTypes } from "@/lib/constants";
 
 export type Role = (typeof roles)[number];
-export type LeadStatus = (typeof leadStatuses)[number];
 export type SourceType = (typeof sourceTypes)[number];
+export type LeadStatus = "NEW" | "ASSIGNED" | "CONTACTED" | "FOLLOW_UP" | "QUOTATION_SENT" | "NEGOTIATION" | "WON" | "LOST";
 
 export type Profile = {
   id: string;
@@ -50,12 +50,49 @@ export type Tender = {
   assigned_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
   assigned_by_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
   uploaded_by_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
+  lead_stage?: Pick<LeadStatusMaster, "id" | "status_name" | "status_color" | "sort_order"> | null;
+  latest_remark?: string | null;
+  last_updated_by_name?: string | null;
+  last_activity_date?: string | null;
   lead_status: LeadStatus;
   is_deleted: boolean;
   deleted_at: string | null;
   deleted_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type LeadStatusMaster = {
+  id: string;
+  status_name: string;
+  sort_order: number;
+  status_order?: number | null;
+  status_color: string;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type LeadRemark = {
+  id: string;
+  tender_id: string;
+  user_id: string;
+  remark: string;
+  created_at: string;
+  tender?: Pick<Tender, "id"> | null;
+  user?: Pick<Profile, "full_name" | "email"> | null;
+};
+
+export type LeadStatusHistory = {
+  id: string;
+  tender_id: string;
+  status_id: string;
+  updated_by: string;
+  remarks: string | null;
+  created_at: string;
+  tender?: Pick<Tender, "id"> | null;
+  old_status?: Pick<LeadStatusMaster, "status_name" | "status_color"> | null;
+  new_status?: Pick<LeadStatusMaster, "status_name" | "status_color"> | null;
+  user?: Pick<Profile, "full_name" | "email"> | null;
 };
 
 export type ManualTenderInsert = {
@@ -120,9 +157,19 @@ export type TenderFollowUp = {
   user_id: string;
   follow_up_date: string;
   remarks: string;
-  status: LeadStatus;
+  status: string;
   created_at: string;
   user?: Pick<Profile, "full_name" | "email"> | null;
+};
+
+export type StatusSummaryRow = {
+  status_id: string | null;
+  status_name: string;
+  status_color: string | null;
+  sort_order: number | null;
+  tender_count: number;
+  our_value: number;
+  awarded_value: number;
 };
 
 export type LeadActivity = {
@@ -138,8 +185,71 @@ export type LeadActivity = {
 export type DashboardMetrics = {
   totalTenders: number;
   totalTenderValue: number;
+  totalOurValue: number;
   assignedLeads: number;
   unassignedLeads: number;
+  assignedOurValue: number;
+  unassignedOurValue: number;
+  myOurValue: number;
+  showMyOurValue: boolean;
   wonLeads: number;
   lostLeads: number;
+  quotationSentValue: number;
+  negotiationValue: number;
+  piPendingValue: number;
+  orderReceivedValue: number;
+  lostLeadValue: number;
+};
+
+export type AnalyticsBreakdownRow = {
+  name: string;
+  count: number;
+  value: number;
+  ourValue: number;
+  won: number;
+  lost: number;
+};
+
+export type MonthlyTrendRow = {
+  name: string;
+  count: number;
+  value: number;
+  ourValue: number;
+};
+
+export type AgeingBucket = {
+  name: string;
+  count: number;
+  ourValue: number;
+  awardedValue: number;
+};
+
+export type UserPerformanceRow = {
+  userId: string;
+  userName: string;
+  role: Role;
+  assignedTenders: number;
+  uploadedTenders: number;
+  followUps: number;
+  assignedOurValue: number;
+  convertedTenders: number;
+};
+
+export type AnalyticsBreakdowns = {
+  ge: AnalyticsBreakdownRow[];
+  cwe: AnalyticsBreakdownRow[];
+  contractDate: AnalyticsBreakdownRow[];
+  bidder: AnalyticsBreakdownRow[];
+  user: AnalyticsBreakdownRow[];
+  ourValueByUser: AnalyticsBreakdownRow[];
+  ourValueByGE: AnalyticsBreakdownRow[];
+  ourValueByContractor: AnalyticsBreakdownRow[];
+  monthlyOurValueTrend: MonthlyTrendRow[];
+  ageing: AgeingBucket[];
+  leadStageDistribution: AnalyticsBreakdownRow[];
+  lostLeadsByReason: AnalyticsBreakdownRow[];
+  competitorAnalysis: AnalyticsBreakdownRow[];
+  userWiseConversion: AnalyticsBreakdownRow[];
+  managerWiseConversion: AnalyticsBreakdownRow[];
+  salesFunnel: AnalyticsBreakdownRow[];
 };
