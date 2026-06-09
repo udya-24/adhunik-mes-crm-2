@@ -7,7 +7,7 @@ import { canAssignLeads } from "@/lib/permissions";
 export default async function TendersPage() {
   const profile = await getCurrentProfile();
   const canAssign = profile ? canAssignLeads(profile.role) : false;
-  const canDelete = profile?.role === "ADMIN";
+  const canDelete = profile?.role === "ADMIN" || profile?.role === "MANAGER";
   const [users, leadStatuses] = await Promise.all([canAssign ? getAssignableUsers() : [], getLeadStatuses({ activeOnly: true })]);
 
   return (

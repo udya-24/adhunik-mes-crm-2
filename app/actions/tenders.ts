@@ -449,7 +449,7 @@ export async function assignLeadToMeAction(tenderId: string) {
 }
 
 export async function bulkTenderAction(input: { tenderIds: string[]; action: "assign" | "unassign" | "delete"; assignedTo?: string | null }) {
-  const profile = await requireRole(input.action === "delete" ? ["ADMIN"] : ["ADMIN", "MANAGER"]);
+  const profile = await requireRole(["ADMIN", "MANAGER"]);
   const tenderIds = Array.from(new Set(input.tenderIds.filter(Boolean)));
   if (!tenderIds.length) throw new Error("Select at least one tender.");
 
@@ -645,7 +645,7 @@ export async function addLeadRemarkAction(formData: FormData) {
 }
 
 export async function deleteTenderAction(tenderId: string) {
-  const profile = await requireRole(["ADMIN"]);
+  const profile = await requireRole(["ADMIN", "MANAGER"]);
   const supabase = await createClient();
   const { data: existing, error: fetchError } = await supabase.from("tenders").select("*").eq("id", tenderId).eq("is_deleted", false).maybeSingle();
   if (fetchError) throw new Error(fetchError.message);
