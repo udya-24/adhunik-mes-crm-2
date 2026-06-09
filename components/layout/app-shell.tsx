@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
-import { Bell, ChevronsLeft, ChevronsRight, LogOut, Menu, Search } from "lucide-react";
+import { Bell, ChevronsLeft, ChevronsRight, LogOut, Menu, Search, X } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { navItems } from "@/lib/constants";
@@ -28,16 +28,34 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
 
   return (
     <div className="min-h-screen bg-white text-slate-950">
+      <div
+        className={cn("fixed inset-0 z-30 bg-slate-950/40 transition-opacity lg:hidden", sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")}
+        onClick={closeSidebar}
+        aria-hidden="true"
+      />
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 border-r border-border bg-white px-4 py-5 shadow-soft transition-all duration-300 lg:translate-x-0",
-          sidebarCollapsed ? "w-20" : "w-72",
+          "fixed inset-y-0 left-0 z-40 w-[min(20rem,86vw)] border-r border-border bg-white px-4 py-5 shadow-soft transition-all duration-300 lg:translate-x-0",
+          sidebarCollapsed ? "lg:w-20" : "lg:w-72",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className={cn("mb-6 rounded-2xl bg-navy-900 p-4 text-white shadow-lift", sidebarCollapsed && "grid place-items-center px-2")}>
+        <div className="mb-4 flex items-center justify-between gap-3 lg:hidden">
+          <p className="text-sm font-bold text-navy-900">Menu</p>
+          <Button variant="ghost" className="h-11 w-11 rounded-full px-0" onClick={closeSidebar} aria-label="Close menu">
+            <X size={18} />
+          </Button>
+        </div>
+        <div className={cn("mb-6 rounded-2xl bg-navy-900 p-4 text-white shadow-lift", sidebarCollapsed && "lg:grid lg:place-items-center lg:px-2")}>
           {sidebarCollapsed ? (
-            <p className="text-lg font-bold text-amber-300" title="Adhunik MES Intelligence CRM">A</p>
+            <>
+              <p className="hidden text-lg font-bold text-amber-300 lg:block" title="Adhunik MES Intelligence CRM">A</p>
+              <div className="lg:hidden">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-300">Adhunik</p>
+                <h2 className="mt-1 text-lg font-bold">MES Intelligence CRM</h2>
+                <p className="mt-2 text-xs text-navy-100">Tender command center</p>
+              </div>
+            </>
           ) : (
             <>
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-300">Adhunik</p>
@@ -46,7 +64,7 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
             </>
           )}
         </div>
-        <Button variant="secondary" className={cn("mb-4 h-9 w-full", sidebarCollapsed && "px-0")} onClick={toggleCollapsed} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+        <Button variant="secondary" className={cn("mb-4 hidden h-9 w-full lg:inline-flex", sidebarCollapsed && "px-0")} onClick={toggleCollapsed} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
           {sidebarCollapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
           {!sidebarCollapsed && "Collapse"}
         </Button>
@@ -61,14 +79,14 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
                 onClick={closeSidebar}
                 title={sidebarCollapsed ? item.label : undefined}
                 className={cn(
-                  "flex h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-600 transition",
-                  sidebarCollapsed && "justify-center px-0",
+                  "flex h-12 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-600 transition lg:h-11",
+                  sidebarCollapsed && "lg:justify-center lg:px-0",
                   active && "bg-navy-50 text-navy-900 ring-1 ring-navy-100",
                   !active && "hover:bg-slate-50 hover:text-navy-900"
                 )}
               >
                 <Icon size={17} />
-                {!sidebarCollapsed && item.label}
+                <span className={cn(sidebarCollapsed && "lg:hidden")}>{item.label}</span>
               </Link>
             );
           })}
@@ -77,7 +95,7 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
       <div className={cn("transition-all duration-300", sidebarCollapsed ? "lg:pl-20" : "lg:pl-72")}>
         <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-4 border-b border-border bg-white/90 px-4 backdrop-blur lg:px-8">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" className="px-3 lg:hidden" onClick={toggleSidebar} aria-label="Open menu">
+            <Button variant="ghost" className="h-11 w-11 px-0 lg:hidden" onClick={toggleSidebar} aria-label="Open menu">
               <Menu size={20} />
             </Button>
             <div>
@@ -103,7 +121,7 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
             </form>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1800px] px-4 py-6 lg:px-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1800px] overflow-x-hidden px-3 py-4 sm:px-4 sm:py-6 lg:px-8">{children}</main>
       </div>
     </div>
   );

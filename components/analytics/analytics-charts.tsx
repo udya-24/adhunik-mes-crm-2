@@ -46,17 +46,19 @@ export function AnalyticsCharts({
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">{label}</p>
               <h2 className="mt-1 font-bold text-navy-900">{label}</h2>
             </div>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={rows}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value, name) => (String(name).toLowerCase().includes("value") ? formatCurrency(Number(value)) : value)} />
-                  <Bar dataKey={primaryKey} fill="#173b71" radius={[4, 4, 0, 0]} />
-                  {primaryKey !== "ourValue" && <Bar dataKey="ourValue" fill="#f97316" radius={[4, 4, 0, 0]} />}
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="overflow-x-auto table-scroll">
+              <div className="h-80 min-w-[520px] md:min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={rows}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(value, name) => (String(name).toLowerCase().includes("value") ? formatCurrency(Number(value)) : value)} />
+                    <Bar dataKey={primaryKey} fill="#173b71" radius={[4, 4, 0, 0]} />
+                    {primaryKey !== "ourValue" && <Bar dataKey="ourValue" fill="#f97316" radius={[4, 4, 0, 0]} />}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </Card>
         ))}

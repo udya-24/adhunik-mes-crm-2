@@ -7,7 +7,17 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Adhunik MES Intelligence CRM",
-  description: "Enterprise MES tender CRM for Adhunik Switchgears"
+  description: "Enterprise MES tender CRM for Adhunik Switchgears",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Adhunik MES"
+  },
+  icons: {
+    icon: "/icons/icon.svg",
+    apple: "/icons/icon.svg"
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

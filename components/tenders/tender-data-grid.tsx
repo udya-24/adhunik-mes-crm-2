@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, MessageCircle, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addLeadRemarkAction, assignLeadAction, bulkTenderAction, deleteTenderAction, getTenderHistoryAction, updateLeadStageAction, updateTenderAction } from "@/app/actions/tenders";
 import { ContractDate } from "@/components/common/contract-date";
@@ -341,7 +341,41 @@ export function TenderDataGrid({
           <Button variant="secondary" className="h-8 px-3 text-xs" disabled={!selectedIds.length} onClick={exportSelectedCsv}>Export Selected</Button>
         </div>
       )}
-      <div className="relative w-full overflow-x-auto table-scroll">
+      <div className="grid gap-3 md:hidden">
+        {isLoading && (
+          <div className="rounded-lg border border-border bg-slate-50 p-4 text-sm text-slate-600">
+            <span className="inline-flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Loading tender records...</span>
+          </div>
+        )}
+        {!isLoading && !tenders.length && <div className="rounded-lg border border-border bg-slate-50 p-4 text-sm text-slate-600">No tender records found.</div>}
+        {tenders.map((tender) => (
+          <button
+            key={tender.id}
+            type="button"
+            className="rounded-lg border border-border bg-white p-4 text-left shadow-sm transition active:scale-[0.99]"
+            onClick={() => setOpenTender(tender)}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-navy-900">{tender.tender_id}</p>
+                <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-800">{tender.tender_title || "-"}</p>
+              </div>
+              <LeadStageBadge tender={tender} leadStatuses={leadStatuses} />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+              <MobileTenderFact label="GE" value={tender.ge} />
+              <MobileTenderFact label="CWE" value={tender.cwe} />
+              <MobileTenderFact label="Awarded" value={formatCurrencyDisplay(tender.awarded_value)} />
+              <MobileTenderFact label="Our Value" value={formatCurrencyDisplay(tender.our_value)} />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} />
+              <SourceTypeBadge sourceType={tender.source_type} />
+            </div>
+          </button>
+        ))}
+      </div>
+      <div className="relative hidden w-full overflow-x-auto table-scroll md:block">
         <table className="w-full min-w-[2000px] table-fixed text-left text-xs">
           <colgroup>
             <col className="w-[40px]" />
@@ -881,16 +915,50 @@ function TwoLineText({ value, className = "" }: { value?: string | null; classNa
   );
 }
 
+function MobileTenderFact({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div className="min-w-0 rounded-md bg-slate-50 p-2 ring-1 ring-border">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 truncate font-semibold text-slate-900">{value || "-"}</p>
+    </div>
+  );
+}
+
 function ContactPreview({ tender }: { tender: Tender }) {
   const phone = tender.contact_number_1 || tender.contact_number_2 || tender.contact_number_3;
   if (!phone && !tender.email) return <span className="text-slate-400">-</span>;
 
   return (
     <div className="space-y-0.5 text-[11px] leading-4 text-slate-600">
-      {phone && <span className="flex min-w-0 items-center gap-1 truncate"><Phone size={11} /> {phone}</span>}
+      {phone && <ContactActions phone={phone} compact />}
       {tender.email && <span className="flex min-w-0 items-center gap-1 truncate"><Mail size={11} /> {tender.email}</span>}
     </div>
   );
+}
+
+function ContactActions({ phone, compact = false }: { phone: string; compact?: boolean }) {
+  const hrefPhone = normalizeIndiaPhone(phone);
+  if (!hrefPhone) return <span className="flex min-w-0 items-center gap-1 truncate"><Phone size={11} /> {phone}</span>;
+
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <a className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md bg-navy-50 text-navy-700 hover:bg-navy-100" href={`tel:${hrefPhone}`} onClick={(event) => event.stopPropagation()} title={`Call ${phone}`}>
+        <Phone size={compact ? 12 : 15} />
+      </a>
+      <a className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100" href={`https://wa.me/${hrefPhone.replace("+", "")}`} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} title={`WhatsApp ${phone}`}>
+        <MessageCircle size={compact ? 12 : 15} />
+      </a>
+      <span className="min-w-0 truncate">{phone}</span>
+    </span>
+  );
+}
+
+function normalizeIndiaPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
+  if (digits.length > 10) return `+${digits}`;
+  return "";
 }
 
 function assignedToLabel(tender: Tender, userById: Map<string, Profile>) {
@@ -954,16 +1022,16 @@ function AssignmentBadge({ tender, userById, currentUserId }: { tender: Tender; 
 
 function AssignForm({ tender, users }: { tender: Tender; users: Profile[] }) {
   return (
-    <form action={assignLeadAction} className="flex gap-2">
+    <form action={assignLeadAction} className="flex flex-col gap-2 sm:flex-row">
       <input type="hidden" name="tenderId" value={tender.id} />
-      <select name="assignedTo" required className="h-8 max-w-36 rounded-md border border-border px-2 text-xs">
+      <select name="assignedTo" required className="h-11 rounded-md border border-border px-2 text-sm sm:h-8 sm:max-w-36 sm:text-xs">
         <option value="">User</option>
         {users.map((user) => (
           <option key={user.id} value={user.id}>{formatAssignableUserOption(user)}</option>
         ))}
       </select>
       <input name="remarks" className="hidden" value="Assigned from tender grid" readOnly />
-      <Button className="h-8 px-2" title="Assign">
+      <Button className="h-11 px-3 sm:h-8 sm:px-2" title="Assign">
         <Send size={15} />
       </Button>
     </form>
@@ -1004,17 +1072,17 @@ function TenderDetailsDrawer({
     <div className={`fixed inset-0 z-50 ${tender ? "pointer-events-auto" : "pointer-events-none"}`} aria-hidden={!tender}>
       <div className={`absolute inset-0 bg-slate-950/30 transition-opacity ${tender ? "opacity-100" : "opacity-0"}`} onClick={onClose} />
       <aside
-        className={`absolute right-0 top-0 h-full w-full max-w-2xl overflow-y-auto border-l border-border bg-white shadow-lift transition-transform duration-300 ${
+        className={`absolute inset-y-0 right-0 h-full w-full overflow-y-auto bg-white shadow-lift transition-transform duration-300 md:left-auto md:max-w-2xl md:border-l md:border-border ${
           tender ? "translate-x-0" : "translate-x-full"
         }`}
       >
         {tender && (
-          <div className="space-y-5 p-5 sm:p-6">
-            <div className="sticky top-0 z-10 -mx-5 -mt-5 border-b border-border bg-white/95 px-5 pb-4 pt-5 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
+          <div className="space-y-5 p-4 sm:p-6">
+            <div className="sticky top-0 z-10 -mx-4 -mt-4 border-b border-border bg-white/95 px-4 pb-4 pt-4 backdrop-blur sm:-mx-6 sm:-mt-6 sm:px-6 sm:pt-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Tender Details</p>
-                <h2 className="mt-1 text-2xl font-bold text-navy-900">{tender.tender_title || tender.tender_id}</h2>
+                <h2 className="mt-1 text-xl font-bold text-navy-900 sm:text-2xl">{tender.tender_title || tender.tender_id}</h2>
                 <p className="mt-1 text-sm text-slate-600">{tender.organisation_chain || "Organisation not specified"}</p>
               </div>
               <Button variant="ghost" className="h-9 w-9 rounded-full px-0" onClick={onClose} aria-label="Close drawer">
@@ -1098,16 +1166,23 @@ function TenderDetailsDrawer({
                 </Section>
 
                 <Section title="Bidder Information">
-                  <InfoGrid
-                    rows={[
-                      ["Bidder Name", tender.bidder_name],
-                      ["Email", tender.email],
-                      ["Contact 1", tender.contact_number_1],
-                      ["Contact 2", tender.contact_number_2],
-                      ["Contact 3", tender.contact_number_3],
-                      ["Address", tender.address]
-                    ]}
-                  />
+                  <div className="space-y-3">
+                    <InfoGrid
+                      rows={[
+                        ["Bidder Name", tender.bidder_name],
+                        ["Email", tender.email],
+                        ["Address", tender.address]
+                      ]}
+                    />
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {[tender.contact_number_1, tender.contact_number_2, tender.contact_number_3].filter(Boolean).map((phone, index) => (
+                        <div key={`${phone}-${index}`} className="rounded-lg border border-border bg-slate-50 p-3 text-sm">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Contact {index + 1}</p>
+                          <ContactActions phone={String(phone)} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </Section>
 
                 <Section title="Attachments">
