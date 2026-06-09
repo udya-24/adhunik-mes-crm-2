@@ -211,12 +211,10 @@ export async function getAssignableUsers() {
 
   if (!profile) return [];
 
-  let query = supabase.from("profiles").select("*").eq("is_active", true).order("full_name");
-  if (profile.role === "ADMIN") {
-    query = query.in("role", ["MANAGER", "USER"]);
-  } else if (profile.role === "MANAGER") {
-    query = query.eq("role", "USER").eq("manager_id", profile.id);
-  } else {
+  let query = supabase.from("profiles").select("*").eq("is_active", true).order("role").order("full_name");
+  if (profile.role === "MANAGER") {
+    query = query.or(`and(role.eq.USER,manager_id.eq.${profile.id}),id.eq.${profile.id}`);
+  } else if (profile.role !== "ADMIN") {
     return [];
   }
 

@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, MessageCircle, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { addLeadRemarkAction, assignLeadAction, bulkTenderAction, deleteTenderAction, getTenderHistoryAction, updateLeadStageAction, updateTenderAction } from "@/app/actions/tenders";
+import { addLeadRemarkAction, assignLeadAction, assignLeadToMeAction, bulkTenderAction, deleteTenderAction, getTenderHistoryAction, updateLeadStageAction, updateTenderAction } from "@/app/actions/tenders";
 import { ContractDate } from "@/components/common/contract-date";
 import { DateTime } from "@/components/common/date-time";
 import { Badge } from "@/components/ui/badge";
@@ -542,7 +542,21 @@ export function TenderDataGrid({
         await queryClient.invalidateQueries({ queryKey: ["tender-details"] });
       }}
     />
-    <TenderDetailsDrawer tender={openTender} userById={userById} users={users} leadStatuses={leadStatuses} canAssign={canAssign} currentUserId={currentUserId} onClose={() => setOpenTender(null)} />
+    <TenderDetailsDrawer
+      tender={openTender}
+      userById={userById}
+      users={users}
+      leadStatuses={leadStatuses}
+      canAssign={canAssign}
+      currentUserId={currentUserId}
+      currentUserRole={currentUserRole ?? null}
+      onAssignedToCurrentUser={async () => {
+        setOpenTender((current) => (current && currentUserId ? { ...current, assigned_to: currentUserId, assigned_by: currentUserId } : current));
+        await invalidateTenderQueries(queryClient);
+        await queryClient.invalidateQueries({ queryKey: ["tender-details"] });
+      }}
+      onClose={() => setOpenTender(null)}
+    />
     </>
   );
 }
@@ -1038,6 +1052,56 @@ function AssignForm({ tender, users }: { tender: Tender; users: Profile[] }) {
   );
 }
 
+function AssignToMeButton({
+  tender,
+  currentUserId,
+  currentUserRole,
+  onAssigned
+}: {
+  tender: Tender;
+  currentUserId: string | null;
+  currentUserRole: Role | null;
+  onAssigned: () => Promise<void> | void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const canSelfAssign = currentUserRole === "ADMIN" || currentUserRole === "MANAGER";
+  const assignedToMe = Boolean(currentUserId && tender.assigned_to === currentUserId);
+  if (!canSelfAssign || !currentUserId) return null;
+
+  function assignToMe() {
+    setMessage("");
+    setError("");
+    startTransition(async () => {
+      const result = await assignLeadToMeAction(tender.id);
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+      setMessage(result?.message ?? "Tender assigned to you successfully.");
+      if (!result?.alreadyAssigned) await onAssigned();
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-slate-50 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-bold text-navy-900">{assignedToMe ? "Currently assigned to you" : "Assign this tender to yourself"}</p>
+          <p className="text-xs text-slate-500">Available for admins and managers.</p>
+        </div>
+        <Button type="button" variant="secondary" disabled={assignedToMe || isPending} onClick={assignToMe}>
+          {isPending ? <Loader2 size={16} className="animate-spin" /> : <UserRound size={16} />}
+          Assign To Me
+        </Button>
+      </div>
+      {message && <p className="mt-2 text-sm font-semibold text-emerald-700">{message}</p>}
+      {error && <p className="mt-2 text-sm font-semibold text-red-700">{error}</p>}
+    </div>
+  );
+}
+
 function TenderDetailsDrawer({
   tender,
   userById,
@@ -1045,6 +1109,8 @@ function TenderDetailsDrawer({
   leadStatuses,
   canAssign,
   currentUserId,
+  currentUserRole,
+  onAssignedToCurrentUser,
   onClose
 }: {
   tender: Tender | null;
@@ -1053,6 +1119,8 @@ function TenderDetailsDrawer({
   leadStatuses: LeadStatusMaster[];
   canAssign: boolean;
   currentUserId: string | null;
+  currentUserRole: Role | null;
+  onAssignedToCurrentUser: () => Promise<void> | void;
   onClose: () => void;
 }) {
   const { data: details = emptyTenderDetails, isLoading } = useTenderDetails(tender?.id);
@@ -1116,6 +1184,7 @@ function TenderDetailsDrawer({
               <>
                 {canAssign && (
                   <Section title="Assignment Controls">
+                    <AssignToMeButton tender={tender} currentUserId={currentUserId} currentUserRole={currentUserRole} onAssigned={onAssignedToCurrentUser} />
                     <AssignForm tender={tender} users={users} />
                   </Section>
                 )}

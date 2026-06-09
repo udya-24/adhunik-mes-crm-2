@@ -55,11 +55,9 @@ async function assertCanAssignToProfile(
 ) {
   let query = supabase.from("profiles").select("id,role,manager_id,is_active").eq("id", assignedTo).eq("is_active", true);
 
-  if (profile.role === "ADMIN") {
-    query = query.in("role", ["MANAGER", "USER"]);
-  } else if (profile.role === "MANAGER") {
-    query = query.eq("role", "USER").eq("manager_id", profile.id);
-  } else {
+  if (profile.role === "MANAGER") {
+    query = query.or(`and(role.eq.USER,manager_id.eq.${profile.id}),id.eq.${profile.id}`);
+  } else if (profile.role !== "ADMIN") {
     throw new Error("You do not have permission to assign tenders.");
   }
 
@@ -366,6 +364,16 @@ export async function assignLeadAction(formData: FormData) {
   await assertCanAssignToProfile(adminSupabase, profile, payload.assignedTo);
 
   const supabase = await createClient();
+  const { data: tender, error: tenderError } = await supabase
+    .from("tenders")
+    .select("id,assigned_to")
+    .eq("id", payload.tenderId)
+    .eq("is_deleted", false)
+    .maybeSingle();
+  if (tenderError) throw new Error(tenderError.message);
+  if (!tender) throw new Error("Tender not found.");
+  if (tender.assigned_to === payload.assignedTo) return;
+
   const { error } = await supabase
     .from("tenders")
     .update({
@@ -395,6 +403,51 @@ export async function assignLeadAction(formData: FormData) {
   revalidatePath("/assignments");
 }
 
+export async function assignLeadToMeAction(tenderId: string) {
+  const profile = await requireRole(["ADMIN", "MANAGER"]);
+  if (!tenderId) return { error: "Tender is required." };
+
+  const supabase = createAdminClient();
+  const { data: tender, error: tenderError } = await supabase
+    .from("tenders")
+    .select("id,assigned_to")
+    .eq("id", tenderId)
+    .eq("is_deleted", false)
+    .maybeSingle();
+  if (tenderError) return { error: tenderError.message };
+  if (!tender) return { error: "Tender not found." };
+  if (tender.assigned_to === profile.id) return { ok: true, alreadyAssigned: true, message: "Currently assigned to you" };
+
+  await assertCanAssignToProfile(supabase, profile, profile.id);
+  const now = utcNowISOString();
+  const { error: updateError } = await supabase
+    .from("tenders")
+    .update({ assigned_to: profile.id, assigned_by: profile.id, updated_at: now })
+    .eq("id", tenderId)
+    .eq("is_deleted", false);
+  if (updateError) return { error: updateError.message };
+
+  const { error: assignmentError } = await supabase.from("lead_assignments").insert({
+    tender_id: tenderId,
+    assigned_to: profile.id,
+    assigned_by: profile.id,
+    remarks: "Assigned to self"
+  });
+  if (assignmentError) return { error: assignmentError.message };
+
+  const { error: activityError } = await supabase.from("lead_activities").insert({
+    tender_id: tenderId,
+    user_id: profile.id,
+    activity_type: "ASSIGNED",
+    activity_notes: "Tender assigned to self"
+  });
+  if (activityError) return { error: activityError.message };
+
+  revalidatePath("/tenders");
+  revalidatePath("/assignments");
+  return { ok: true, message: "Tender assigned to you successfully." };
+}
+
 export async function bulkTenderAction(input: { tenderIds: string[]; action: "assign" | "unassign" | "delete"; assignedTo?: string | null }) {
   const profile = await requireRole(input.action === "delete" ? ["ADMIN"] : ["ADMIN", "MANAGER"]);
   const tenderIds = Array.from(new Set(input.tenderIds.filter(Boolean)));
@@ -411,18 +464,21 @@ export async function bulkTenderAction(input: { tenderIds: string[]; action: "as
   if (!tenders?.length) throw new Error("No active tenders found for bulk operation.");
 
   const now = utcNowISOString();
+  let affectedTenders = tenders;
   if (input.action === "assign") {
     if (!input.assignedTo) throw new Error("Choose a user before assigning selected tenders.");
     await assertCanAssignToProfile(supabase, profile, input.assignedTo);
+    affectedTenders = tenders.filter((tender) => tender.assigned_to !== input.assignedTo);
+    if (!affectedTenders.length) return { ok: true, count: 0 };
 
     const { error } = await supabase
       .from("tenders")
       .update({ assigned_to: input.assignedTo, assigned_by: profile.id, updated_at: now })
-      .in("id", tenders.map((tender) => tender.id));
+      .in("id", affectedTenders.map((tender) => tender.id));
     if (error) throw new Error(error.message);
 
     await supabase.from("lead_assignments").insert(
-      tenders.map((tender) => ({
+      affectedTenders.map((tender) => ({
         tender_id: tender.id,
         assigned_to: input.assignedTo,
         assigned_by: profile.id,
@@ -448,7 +504,7 @@ export async function bulkTenderAction(input: { tenderIds: string[]; action: "as
   }
 
   await supabase.from("lead_activities").insert(
-    tenders.map((tender) => ({
+    affectedTenders.map((tender) => ({
       tender_id: tender.id,
       user_id: profile.id,
       activity_type: `BULK_${input.action.toUpperCase()}`,
@@ -457,7 +513,7 @@ export async function bulkTenderAction(input: { tenderIds: string[]; action: "as
   );
 
   await supabase.from("audit_logs").insert(
-    tenders.map((tender) => ({
+    affectedTenders.map((tender) => ({
       table_name: "tenders",
       record_id: tender.id,
       user_id: profile.id,
@@ -472,7 +528,7 @@ export async function bulkTenderAction(input: { tenderIds: string[]; action: "as
   );
 
   revalidateTenderPaths();
-  return { ok: true, count: tenders.length };
+  return { ok: true, count: affectedTenders.length };
 }
 
 export async function updateLeadStageAction(formData: FormData) {
