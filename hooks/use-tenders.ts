@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { tenderQueryKeys, type TenderQueryParams } from "@/lib/queries/tenders";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, Tender } from "@/lib/types";
@@ -26,6 +26,7 @@ export function useTenders(params: Partial<TenderQueryParams> = {}) {
   const queryParams = { ...defaultTenderQueryParams, ...params };
   return useQuery({
     queryKey: tenderQueryKeys.list(queryParams),
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const supabase = createClient();
       const {
@@ -45,6 +46,7 @@ export function useTenders(params: Partial<TenderQueryParams> = {}) {
         .from("tenders")
         .select(tenderSelect, { count: "exact" })
         .eq("is_deleted", false)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
       if (currentProfile?.role === "USER") query = query.or(`uploaded_by.eq.${currentProfile.id},assigned_to.eq.${currentProfile.id}`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, MessageCircle, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addLeadRemarkAction, assignLeadAction, assignLeadToMeAction, bulkTenderAction, deleteTenderAction, getTenderHistoryAction, updateLeadStageAction, updateTenderAction } from "@/app/actions/tenders";
@@ -95,6 +95,7 @@ export function TenderDataGrid({
   const [bulkAction, setBulkAction] = useState<"assign" | "unassign" | "delete" | null>(null);
   const [bulkAssignedTo, setBulkAssignedTo] = useState("");
   const [bulkError, setBulkError] = useState("");
+  const didMountFiltersRef = useRef(false);
   const { data: tenderPage = { rows: [], total: 0 }, error, isLoading, isFetching } = useTenders({ search, status, source, assignment, page, pageSize });
   const tenders = tenderPage.rows;
   const totalTenders = tenderPage.total;
@@ -137,12 +138,16 @@ export function TenderDataGrid({
   }, [pageSize]);
 
   useEffect(() => {
+    if (!didMountFiltersRef.current) {
+      didMountFiltersRef.current = true;
+      return;
+    }
     setPage(1);
   }, [search, status, source, assignment, pageSize]);
 
   useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+    if (!isFetching && page > totalPages) setPage(totalPages);
+  }, [isFetching, page, totalPages]);
 
   useEffect(() => {
     const visibleIds = new Set(visibleTenderIdKey ? visibleTenderIdKey.split("|") : []);
@@ -174,6 +179,10 @@ export function TenderDataGrid({
 
   function toggleSelected(id: string) {
     setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  }
+
+  function handlePageClick(page: number) {
+    setPage(page);
   }
 
   function runBulkAction() {
@@ -492,13 +501,13 @@ export function TenderDataGrid({
           </select>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" className="h-9" disabled={page <= 1 || isFetching} onClick={() => setPage((current) => Math.max(1, current - 1))}>{"<< Previous"}</Button>
+          <Button variant="secondary" className="h-9" disabled={page <= 1} onClick={() => handlePageClick(page - 1)}>{"<< Previous"}</Button>
           {pageNumbers.map((pageNumber) => (
-            <Button key={pageNumber} variant={pageNumber === page ? "primary" : "secondary"} className="h-9 min-w-9 px-3" disabled={isFetching} onClick={() => setPage(pageNumber)}>
+            <Button key={pageNumber} variant={pageNumber === page ? "primary" : "secondary"} className="h-9 min-w-9 px-3" disabled={pageNumber === page} onClick={() => handlePageClick(pageNumber)}>
               {pageNumber}
             </Button>
           ))}
-          <Button variant="secondary" className="h-9" disabled={page >= totalPages || isFetching} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>{"Next >>"}</Button>
+          <Button variant="secondary" className="h-9" disabled={page >= totalPages} onClick={() => handlePageClick(page + 1)}>{"Next >>"}</Button>
         </div>
       </div>
     </Card>
@@ -1128,13 +1137,6 @@ function TenderDetailsDrawer({
   useEffect(() => {
     if (tender) setActiveTab("details");
   }, [tender?.id]);
-  const attachments = tender
-    ? [
-        ["BOQ", tender.boq_attachment_url, tender.boq_attachment_name],
-        ["AOC", tender.aoc_attachment_url, tender.aoc_attachment_name],
-        ["Tender Document", tender.tender_document_url, tender.tender_document_attachment_name]
-      ].filter(([, url]) => Boolean(url))
-    : [];
 
   return (
     <div className={`fixed inset-0 z-50 ${tender ? "pointer-events-auto" : "pointer-events-none"}`} aria-hidden={!tender}>
@@ -1254,20 +1256,7 @@ function TenderDetailsDrawer({
                   </div>
                 </Section>
 
-                <Section title="Attachments">
-                  {attachments.length ? (
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {attachments.map(([label, url, filename]) => (
-                        <a key={label} href={url ?? "#"} target="_blank" className="flex items-center gap-2 rounded-xl border border-border bg-slate-50 p-3 text-sm font-semibold text-navy-900 hover:bg-navy-50">
-                          <FileText size={16} />
-                          <span className="min-w-0 truncate">{filename || label}</span>
-                        </a>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">No attachments uploaded.</p>
-                  )}
-                </Section>
+                <TenderDocuments tender={tender} />
 
                 <Section title="Timeline">
                   <div className="space-y-3">
@@ -1426,6 +1415,82 @@ function AssignmentInfo({
       <InfoValue label="Assigned By">{tender.assigned_by || latestAssignment ? formatProfileDisplayName(assignedByProfile) : "Unknown User"}</InfoValue>
       <InfoValue label="Assigned On"><DateTime value={assignedOn} /></InfoValue>
       <InfoValue label="Role">{tender.assigned_to ? assignedRole : "Unknown User"}</InfoValue>
+    </div>
+  );
+}
+
+type TenderDocument = {
+  label: string;
+  name: string | null;
+  url: string | null;
+};
+
+function TenderDocuments({ tender }: { tender: Tender }) {
+  const docs: TenderDocument[] = [
+    {
+      label: "BOQ",
+      name: tender.boq_attachment_name,
+      url: tender.boq_attachment_url
+    },
+    {
+      label: "AOC",
+      name: tender.aoc_attachment_name,
+      url: tender.aoc_attachment_url
+    },
+    {
+      label: "Tender",
+      name: tender.tender_document_attachment_name,
+      url: tender.tender_document_url
+    }
+  ];
+
+  return (
+    <Section title="Documents">
+      <div className="space-y-2">
+        {docs.map((doc) => (
+          <DocRow key={doc.label} doc={doc} />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function DocRow({ doc }: { doc: TenderDocument }) {
+  if (!doc.url) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-slate-50 px-3 py-2 text-sm text-slate-500">
+        <FileText size={15} />
+        <span>{doc.label}: No file</span>
+      </div>
+    );
+  }
+
+  const fileName = doc.name || "Uploaded file";
+  const isPDF = fileName.toLowerCase().endsWith(".pdf") || doc.url.toLowerCase().includes(".pdf");
+
+  return (
+    <div className="rounded-lg border border-border bg-slate-50 p-3">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="flex min-w-0 items-center gap-2 font-semibold text-slate-800">
+          <FileText size={15} className="shrink-0 text-slate-500" />
+          <span className="truncate">{doc.label}: {fileName}</span>
+        </span>
+        <a
+          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-emerald-50 px-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+          href={doc.url}
+          download
+        >
+          <Download size={13} />
+          Download
+        </a>
+      </div>
+      {isPDF && (
+        <iframe
+          src={doc.url}
+          className="mt-3 h-96 w-full rounded-md border border-border bg-white"
+          title={`${doc.label} PDF preview`}
+        />
+      )}
     </div>
   );
 }

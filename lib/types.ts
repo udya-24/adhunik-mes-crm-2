@@ -172,6 +172,16 @@ export type StatusSummaryRow = {
   awarded_value: number;
 };
 
+export type OperationalSummaryRow = {
+  status: "ASSIGNED" | "OPEN_POOL";
+  count: number;
+};
+
+export type PipelineSummaryRow = {
+  stage: LeadStatus;
+  count: number;
+};
+
 export type LeadActivity = {
   id: string;
   tender_id: string;

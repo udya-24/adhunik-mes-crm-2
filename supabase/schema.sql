@@ -194,6 +194,33 @@ left join public.lead_assignments la
 left join public.profiles p
   on p.id = la.assigned_to;
 
+drop view if exists public.vw_operational_summary;
+
+create view public.vw_operational_summary
+with (security_invoker = true)
+as
+select
+  case
+    when assigned_to is null then 'OPEN_POOL'
+    else 'ASSIGNED'
+  end as status,
+  count(*) as count
+from public.tenders
+where deleted_at is null
+group by status;
+
+drop view if exists public.vw_pipeline_summary;
+
+create view public.vw_pipeline_summary
+with (security_invoker = true)
+as
+select
+  coalesce(lead_status, 'NEW') as stage,
+  count(*) as count
+from public.tenders
+where deleted_at is null
+group by coalesce(lead_status, 'NEW');
+
 alter table public.profiles enable row level security;
 alter table public.tenders enable row level security;
 alter table public.lead_assignments enable row level security;

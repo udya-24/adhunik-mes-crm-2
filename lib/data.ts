@@ -3,7 +3,7 @@ import { getCurrentProfile, requireRole } from "@/lib/auth";
 import { formatDate, getISTDayBoundsISO } from "@/lib/date-utils";
 import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/server";
-import type { AgeingBucket, AnalyticsBreakdowns, DashboardMetrics, LeadStatusMaster, Profile, StatusSummaryRow, Tender, UserPerformanceRow } from "@/lib/types";
+import type { AgeingBucket, AnalyticsBreakdowns, DashboardMetrics, LeadStatusMaster, OperationalSummaryRow, PipelineSummaryRow, Profile, StatusSummaryRow, Tender, UserPerformanceRow } from "@/lib/types";
 
 const defaultDashboardMetrics: DashboardMetrics = {
   totalTenders: 0,
@@ -91,7 +91,7 @@ export async function getTenderRows({ limit = 50 }: { limit?: number } = {}) {
   const supabase = await createClient();
   const profile = await getCurrentProfile();
 
-  let query = supabase.from("tenders").select(tenderSelect).eq("is_deleted", false).order("created_at", { ascending: false });
+  let query = supabase.from("tenders").select(tenderSelect).eq("is_deleted", false).is("deleted_at", null).order("created_at", { ascending: false });
   if (profile?.role === "USER") query = query.or(`uploaded_by.eq.${profile.id},assigned_to.eq.${profile.id}`);
   const { data, error } = await (limit ? query.limit(limit) : query);
 
@@ -123,24 +123,29 @@ export async function getDeletedTenderRows() {
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   noStore();
   try {
-    const [profile, tenders, statusSummary] = await Promise.all([getCurrentProfile(), getAnalyticsTenderRows(), getStatusSummaryRows()]);
+    const [profile, tenders, operationalSummary, pipelineSummary] = await Promise.all([
+      getCurrentProfile(),
+      getAnalyticsTenderRows(),
+      getOperationalSummaryRows(),
+      getPipelineSummaryRows()
+    ]);
     return {
-      totalTenders: sumStatusCount(statusSummary) || tenders.length,
-      totalTenderValue: sumStatusAwardedValue(statusSummary) || tenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
-      totalOurValue: sumStatusOurValue(statusSummary) || sumOurValue(tenders),
-      assignedLeads: tenders.filter((tender) => tender.assigned_to).length,
-      unassignedLeads: tenders.filter((tender) => !tender.assigned_to).length,
+      totalTenders: operationalCount(operationalSummary, "ASSIGNED") + operationalCount(operationalSummary, "OPEN_POOL"),
+      totalTenderValue: tenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
+      totalOurValue: sumOurValue(tenders),
+      assignedLeads: operationalCount(operationalSummary, "ASSIGNED"),
+      unassignedLeads: operationalCount(operationalSummary, "OPEN_POOL"),
       assignedOurValue: sumOurValue(tenders.filter((tender) => tender.assigned_to)),
       unassignedOurValue: sumOurValue(tenders.filter((tender) => !tender.assigned_to)),
       myOurValue: profile?.role === "USER" ? sumOurValue(tenders.filter((tender) => tender.assigned_to === profile.id || tender.uploaded_by === profile.id)) : 0,
       showMyOurValue: profile?.role === "USER",
-      wonLeads: statusSummary.find((row) => row.status_name === "Order Received")?.tender_count ?? 0,
-      lostLeads: statusSummary.find((row) => row.status_name === "Lost To Competitor")?.tender_count ?? 0,
-      quotationSentValue: statusOurValue(statusSummary, "Quotation Sent"),
-      negotiationValue: statusOurValue(statusSummary, "Price Negotiation"),
-      piPendingValue: statusOurValue(statusSummary, "PI Waiting Approval"),
-      orderReceivedValue: statusOurValue(statusSummary, "Order Received"),
-      lostLeadValue: statusOurValue(statusSummary, "Lost To Competitor")
+      wonLeads: pipelineCount(pipelineSummary, "WON"),
+      lostLeads: pipelineCount(pipelineSummary, "LOST"),
+      quotationSentValue: sumOurValue(tenders.filter((tender) => tender.lead_status === "QUOTATION_SENT")),
+      negotiationValue: sumOurValue(tenders.filter((tender) => tender.lead_status === "NEGOTIATION")),
+      piPendingValue: sumOurValue(tenders.filter((tender) => leadStageName(tender) === "PI Waiting Approval")),
+      orderReceivedValue: sumOurValue(tenders.filter((tender) => tender.lead_status === "WON")),
+      lostLeadValue: sumOurValue(tenders.filter((tender) => tender.lead_status === "LOST"))
     };
   } catch (error) {
     console.error("getDashboardMetrics", error);
@@ -148,23 +153,77 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   }
 }
 
-export async function getStatusSummaryRows(): Promise<StatusSummaryRow[]> {
+export async function getOperationalSummaryRows(): Promise<OperationalSummaryRow[]> {
   noStore();
   const supabase = await createClient();
-  const { data, error } = await orderBySortOrderWithFallback(() => supabase.from("vw_status_summary").select("*"));
+  const { data, error } = await supabase.from("vw_operational_summary").select("*");
   if (error) {
-    logQueryError("getStatusSummaryRows vw_status_summary", error);
-    return [];
+    logQueryError("getOperationalSummaryRows vw_operational_summary", error);
+    return getOperationalSummaryRowsFromTenders();
   }
   return (data ?? []).map((row: Record<string, unknown>) => ({
-    status_id: String(row.status_id ?? row.lead_status_id ?? row.id ?? "") || null,
-    status_name: String(row.status_name ?? row.name ?? "Unknown"),
-    status_color: typeof row.status_color === "string" ? row.status_color : null,
-    sort_order: numericOrNull(row.sort_order ?? row.status_order),
-    tender_count: Number(row.tender_count ?? row.count ?? row.total_tenders ?? 0),
-    our_value: Number(row.our_value ?? row.total_our_value ?? row.our_value_total ?? 0),
-    awarded_value: Number(row.awarded_value ?? row.total_awarded_value ?? row.awarded_value_total ?? 0)
+    status: row.status === "ASSIGNED" ? "ASSIGNED" : "OPEN_POOL",
+    count: Number(row.count ?? 0)
   }));
+}
+
+async function getOperationalSummaryRowsFromTenders(): Promise<OperationalSummaryRow[]> {
+  const tenders = await getAnalyticsTenderRows();
+  return [
+    { status: "ASSIGNED", count: tenders.filter((tender) => tender.assigned_to).length },
+    { status: "OPEN_POOL", count: tenders.filter((tender) => !tender.assigned_to).length }
+  ];
+}
+
+export async function getPipelineSummaryRows(): Promise<PipelineSummaryRow[]> {
+  noStore();
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("vw_pipeline_summary").select("*");
+  if (error) {
+    logQueryError("getPipelineSummaryRows vw_pipeline_summary", error);
+    return getPipelineSummaryRowsFromTenders();
+  }
+  return (data ?? []).map((row: Record<string, unknown>) => ({
+    stage: normalizeLeadStatus(row.stage),
+    count: Number(row.count ?? 0)
+  }));
+}
+
+async function getPipelineSummaryRowsFromTenders(): Promise<PipelineSummaryRow[]> {
+  const tenders = await getAnalyticsTenderRows();
+  const counts = new Map<Tender["lead_status"], number>();
+  tenders.forEach((tender) => {
+    const stage = tender.lead_status ?? "NEW";
+    counts.set(stage, (counts.get(stage) ?? 0) + 1);
+  });
+  return Array.from(counts.entries()).map(([stage, count]) => ({ stage, count }));
+}
+
+export async function getStatusSummaryRows(): Promise<StatusSummaryRow[]> {
+  const [tenders, statuses] = await Promise.all([getAnalyticsTenderRows(), getLeadStatuses()]);
+  const statusByName = new Map(statuses.map((status) => [status.status_name, status]));
+  const rowsByName = new Map<string, StatusSummaryRow>();
+
+  tenders.forEach((tender) => {
+    const statusName = leadStageName(tender);
+    const status = statusByName.get(statusName);
+    const row = rowsByName.get(statusName) ?? {
+      status_id: status?.id ?? null,
+      status_name: statusName,
+      status_color: status?.status_color ?? null,
+      sort_order: status?.sort_order ?? null,
+      tender_count: 0,
+      our_value: 0,
+      awarded_value: 0
+    };
+
+    row.tender_count += 1;
+    row.our_value += Number(tender.our_value ?? 0);
+    row.awarded_value += Number(tender.awarded_value ?? 0);
+    rowsByName.set(statusName, row);
+  });
+
+  return Array.from(rowsByName.values()).sort((a, b) => (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER));
 }
 
 export async function getLeadStatuses({ activeOnly = false }: { activeOnly?: boolean } = {}) {
@@ -197,11 +256,6 @@ async function orderBySortOrderWithFallback(
 
 function isMissingColumnError(error: { message?: string; details?: string | null; hint?: string | null }, column: string) {
   return [error.message, error.details, error.hint].filter(Boolean).some((value) => String(value).includes(column));
-}
-
-function numericOrNull(value: unknown) {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
 export async function getAssignableUsers() {
@@ -247,8 +301,9 @@ export async function getAssignmentHistory() {
   const profile = await getCurrentProfile();
   let query = supabase
     .from("lead_assignments")
-    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,is_deleted), assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role), assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
+    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,is_deleted,deleted_at), assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role), assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
     .eq("tender.is_deleted", false)
+    .is("tender.deleted_at", null)
     .order("assigned_date", { ascending: false })
     .limit(100);
 
@@ -269,8 +324,9 @@ export async function getFollowUpBuckets() {
   const { start: todayStart, end: todayEnd } = getISTDayBoundsISO();
   let query = supabase
     .from("follow_ups")
-    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,contract_date,is_deleted)")
+    .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,contract_date,is_deleted,deleted_at)")
     .eq("tender.is_deleted", false)
+    .is("tender.deleted_at", null)
     .order("follow_up_date", { ascending: true })
     .limit(200);
 
@@ -291,7 +347,7 @@ export async function getFollowUpBuckets() {
 }
 
 export async function getAnalyticsBreakdowns() {
-  const [tenders, statusSummary] = await Promise.all([getAnalyticsTenderRows(), getStatusSummaryRows()]);
+  const [tenders, statusSummary, pipelineSummary] = await Promise.all([getAnalyticsTenderRows(), getStatusSummaryRows(), getPipelineSummaryRows()]);
   const groupByValue = (getName: (tender: Tender) => string | null | undefined, { skipEmpty = false }: { skipEmpty?: boolean } = {}) => {
     const map = new Map<string, { name: string; count: number; value: number; ourValue: number; won: number; lost: number }>();
     tenders.forEach((tender) => {
@@ -325,7 +381,7 @@ export async function getAnalyticsBreakdowns() {
     competitorAnalysis: groupByValue((tender) => (leadStageName(tender) === "Lost To Competitor" ? "Unknown" : null), { skipEmpty: true }),
     userWiseConversion: groupByValue((tender) => (leadStageName(tender) === "Order Received" ? assignedTenderUserName(tender) : null), { skipEmpty: true }),
     managerWiseConversion: groupByValue((tender) => (leadStageName(tender) === "Order Received" ? tender.assigned_profile?.role ?? "Unknown" : null), { skipEmpty: true }),
-    salesFunnel: getSalesFunnel(statusSummary)
+    salesFunnel: getSalesFunnel(pipelineSummary, tenders)
   } satisfies AnalyticsBreakdowns;
 }
 
@@ -392,6 +448,14 @@ function sumOurValue(tenders: Tender[]) {
   return tenders.reduce((sum, tender) => sum + Number(tender.our_value ?? 0), 0);
 }
 
+function operationalCount(rows: OperationalSummaryRow[], status: OperationalSummaryRow["status"]) {
+  return rows.find((row) => row.status === status)?.count ?? 0;
+}
+
+function pipelineCount(rows: PipelineSummaryRow[], stage: Tender["lead_status"]) {
+  return rows.find((row) => row.stage === stage)?.count ?? 0;
+}
+
 function leadStageName(tender: Tender) {
   return tender.lead_stage?.status_name || leadStatusNameFromEnum(tender.lead_status);
 }
@@ -410,32 +474,21 @@ function leadStatusNameFromEnum(status: Tender["lead_status"] | null | undefined
   return status ? labels[status] : "No Status";
 }
 
-function statusOurValue(rows: StatusSummaryRow[], statusName: string) {
-  return rows.find((row) => row.status_name === statusName)?.our_value ?? 0;
+function normalizeLeadStatus(value: unknown): Tender["lead_status"] {
+  const status = String(value ?? "NEW") as Tender["lead_status"];
+  return ["NEW", "ASSIGNED", "CONTACTED", "FOLLOW_UP", "QUOTATION_SENT", "NEGOTIATION", "WON", "LOST"].includes(status) ? status : "NEW";
 }
 
-function sumStatusCount(rows: StatusSummaryRow[]) {
-  return rows.reduce((sum, row) => sum + row.tender_count, 0);
-}
-
-function sumStatusOurValue(rows: StatusSummaryRow[]) {
-  return rows.reduce((sum, row) => sum + row.our_value, 0);
-}
-
-function sumStatusAwardedValue(rows: StatusSummaryRow[]) {
-  return rows.reduce((sum, row) => sum + row.awarded_value, 0);
-}
-
-function getSalesFunnel(statusSummary: StatusSummaryRow[]) {
-  const stages = ["New Lead", "First Contact", "Quotation Sent", "Price Negotiation", "PI Sent", "Order Received"];
+function getSalesFunnel(pipelineSummary: PipelineSummaryRow[], tenders: Tender[]) {
+  const stages: Tender["lead_status"][] = ["NEW", "CONTACTED", "QUOTATION_SENT", "NEGOTIATION", "FOLLOW_UP", "WON"];
   return stages.map((stage) => {
-    const row = statusSummary.find((item) => item.status_name === stage);
+    const matchingTenders = tenders.filter((tender) => tender.lead_status === stage);
     return {
-      name: stage,
-      count: row?.tender_count ?? 0,
-      value: row?.awarded_value ?? 0,
-      ourValue: row?.our_value ?? 0,
-      won: stage === "Order Received" ? row?.our_value ?? 0 : 0,
+      name: leadStatusNameFromEnum(stage),
+      count: pipelineCount(pipelineSummary, stage),
+      value: matchingTenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
+      ourValue: sumOurValue(matchingTenders),
+      won: stage === "WON" ? sumOurValue(matchingTenders) : 0,
       lost: 0
     };
   });
