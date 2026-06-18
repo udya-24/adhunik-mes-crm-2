@@ -264,15 +264,15 @@ export async function getAssignableUsers() {
   const profile = await getCurrentProfile();
 
   if (!profile) return [];
+  if (profile.role !== "ADMIN" && profile.role !== "MANAGER") return [];
 
-  let query = supabase.from("profiles").select("*").eq("is_active", true).order("role").order("full_name");
-  if (profile.role === "MANAGER") {
-    query = query.or(`and(role.eq.USER,manager_id.eq.${profile.id}),id.eq.${profile.id}`);
-  } else if (profile.role !== "ADMIN") {
-    return [];
-  }
-
-  const { data, error } = await query;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("is_active", true)
+    .in("role", ["MANAGER", "USER"])
+    .order("role")
+    .order("full_name");
   if (error) {
     logQueryError("getAssignableUsers profiles", error);
     return [];
@@ -391,11 +391,8 @@ export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
   const profile = await getCurrentProfile();
   if (!profile || profile.role === "USER") return [];
 
-  let usersQuery = supabase.from("profiles").select("*").eq("is_active", true).in("role", ["MANAGER", "USER"]).order("full_name");
-  if (profile.role === "MANAGER") usersQuery = usersQuery.eq("manager_id", profile.id).eq("role", "USER");
-
   const [{ data: users, error: usersError }, tenders, { data: followUps, error: followUpsError }] = await Promise.all([
-    usersQuery,
+    supabase.from("profiles").select("*").eq("is_active", true).in("role", ["MANAGER", "USER"]).order("full_name"),
     getAnalyticsTenderRows(),
     supabase.from("follow_ups").select("user_id")
   ]);
@@ -430,18 +427,7 @@ export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
 async function getAnalyticsTenderRows() {
   const [profile, tenders] = await Promise.all([getCurrentProfile(), getTenderRows({ limit: 5000 })]);
   if (!profile) return [];
-  if (profile.role === "USER") return tenders;
-  if (profile.role !== "MANAGER") return tenders;
-
-  const supabase = await createClient();
-  const { data, error } = await supabase.from("profiles").select("id").eq("manager_id", profile.id).eq("is_active", true);
-  if (error) {
-    logQueryError("getAnalyticsTenderRows team profiles", error);
-    return tenders;
-  }
-
-  const teamIds = new Set([profile.id, ...(data ?? []).map((user) => user.id)]);
-  return tenders.filter((tender) => (tender.assigned_to && teamIds.has(tender.assigned_to)) || (tender.uploaded_by && teamIds.has(tender.uploaded_by)));
+  return tenders;
 }
 
 function sumOurValue(tenders: Tender[]) {

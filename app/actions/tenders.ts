@@ -32,20 +32,10 @@ function leadStatusEnumFromName(statusName: string) {
   return "NEW";
 }
 
-async function canUpdateLeadPipeline(
-  supabase: ReturnType<typeof createAdminClient>,
-  profile: { id: string; role: string },
-  tender: { uploaded_by: string | null; assigned_to: string | null }
-) {
-  if (profile.role === "ADMIN") return true;
+async function canUpdateLeadPipeline(profile: { id: string; role: string }, tender: { uploaded_by: string | null; assigned_to: string | null }) {
+  if (profile.role === "ADMIN" || profile.role === "MANAGER") return true;
   if (profile.role === "USER") return tender.assigned_to === profile.id;
-  if (profile.role !== "MANAGER") return false;
-  if (tender.uploaded_by === profile.id || tender.assigned_to === profile.id) return true;
-  const userIds = [tender.assigned_to, tender.uploaded_by].filter((id): id is string => Boolean(id));
-  if (!userIds.length) return false;
-  const { data, error } = await supabase.from("profiles").select("id").in("id", userIds).eq("manager_id", profile.id).limit(1);
-  if (error) throw new Error(error.message);
-  return Boolean(data?.length);
+  return false;
 }
 
 async function assertCanAssignToProfile(
@@ -53,10 +43,10 @@ async function assertCanAssignToProfile(
   profile: Pick<Profile, "id" | "role">,
   assignedTo: string
 ) {
-  let query = supabase.from("profiles").select("id,role,manager_id,is_active").eq("id", assignedTo).eq("is_active", true);
+  let query = supabase.from("profiles").select("id,role,is_active").eq("id", assignedTo).eq("is_active", true);
 
   if (profile.role === "MANAGER") {
-    query = query.or(`and(role.eq.USER,manager_id.eq.${profile.id}),id.eq.${profile.id}`);
+    query = query.in("role", ["MANAGER", "USER"]);
   } else if (profile.role !== "ADMIN") {
     throw new Error("You do not have permission to assign tenders.");
   }
@@ -546,7 +536,7 @@ export async function updateLeadStageAction(formData: FormData) {
   if (statusError) return { error: statusError.message };
   if (!tender) return { error: "Tender not found" };
   if (!nextStatus) return { error: "Lead stage not found" };
-  if (!(await canUpdateLeadPipeline(supabase, profile, tender))) throw new Error("You do not have permission to update this lead stage.");
+  if (!(await canUpdateLeadPipeline(profile, tender))) throw new Error("You do not have permission to update this lead stage.");
 
   const followUpDate = String(formData.get("followUpDate") || "");
   const reminderNotes = String(formData.get("reminderNotes") || "").trim();
@@ -622,7 +612,7 @@ export async function addLeadRemarkAction(formData: FormData) {
   const { data: tender, error: tenderError } = await supabase.from("tenders").select("uploaded_by,assigned_to").eq("id", tenderId).eq("is_deleted", false).maybeSingle();
   if (tenderError) throw new Error(tenderError.message);
   if (!tender) throw new Error("Tender not found.");
-  if (!(await canUpdateLeadPipeline(supabase, profile, tender))) throw new Error("You do not have permission to add remarks for this lead.");
+  if (!(await canUpdateLeadPipeline(profile, tender))) throw new Error("You do not have permission to add remarks for this lead.");
 
   const { error } = await supabase.from("lead_remarks").insert({ tender_id: tenderId, user_id: profile.id, remark });
   if (error) throw new Error(error.message);
