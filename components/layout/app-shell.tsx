@@ -14,7 +14,11 @@ import { useUiStore } from "@/store/ui-store";
 export function AppShell({ children, profile }: { children: React.ReactNode; profile: Profile }) {
   const pathname = usePathname();
   const { sidebarOpen, sidebarCollapsed, toggleSidebar, closeSidebar, setSidebarCollapsed } = useUiStore();
-  const items = navItems.filter((item) => (item.roles as readonly string[]).includes(profile.role));
+  const items = navItems.filter(
+    (item) =>
+      (item.roles as readonly string[]).includes(profile.role) &&
+      (item.href !== "/quotations" || profile.role !== "USER" || profile.can_access_quotations)
+  );
 
   useEffect(() => {
     setSidebarCollapsed(localStorage.getItem("adhunik-sidebar-collapsed") === "true");

@@ -3,6 +3,7 @@ import type { Role } from "@/lib/types";
 export const routeRolePermissions: Record<string, readonly Role[]> = {
   "/dashboard": ["ADMIN", "MANAGER", "USER"],
   "/tenders": ["ADMIN", "MANAGER", "USER"],
+  "/quotations": ["ADMIN", "MANAGER", "USER"],
   "/imports": ["ADMIN", "MANAGER", "USER"],
   "/assignments": ["ADMIN", "MANAGER"],
   "/follow-ups": ["ADMIN", "MANAGER", "USER"],
@@ -29,4 +30,8 @@ export function canUseExcelImport(role: Role) {
 
 export function canAssignLeads(role: Role) {
   return role === "ADMIN" || role === "MANAGER";
+}
+
+export function canAccessQuotations(profile: { role: Role; can_access_quotations?: boolean }) {
+  return profile.role === "ADMIN" || profile.role === "MANAGER" || Boolean(profile.can_access_quotations);
 }

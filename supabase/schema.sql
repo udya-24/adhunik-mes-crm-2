@@ -318,7 +318,7 @@ values
   ('boq', 'boq', true),
   ('aoc', 'aoc', true),
   ('tender-documents', 'tender-documents', true),
-  ('quotations', 'quotations', false)
+  ('quotations', 'quotations', true)
 on conflict (id) do nothing;
 
 create policy "storage_authenticated_read" on storage.objects for select

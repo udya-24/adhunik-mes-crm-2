@@ -11,8 +11,64 @@ export type Profile = {
   role: Role;
   manager_id: string | null;
   is_active: boolean;
+  can_access_quotations: boolean;
   created_at: string;
 };
+
+export type QuotationStatus = "DRAFT" | "SENT" | "ACCEPTED" | "REJECTED";
+
+export type QuotationItem = {
+  id?: string;
+  quotation_id?: string;
+  line_no: number;
+  item_description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  total_price: number;
+  created_at?: string;
+};
+
+export type QuotationTerm = {
+  id?: string;
+  quotation_id?: string;
+  term_key: string;
+  term_value: string;
+  display_order: number;
+  created_at?: string;
+};
+
+export type Quotation = {
+  id: string;
+  quotation_no: string;
+  quotation_date: string;
+  contract_name: string | null;
+  customer_name: string;
+  address: string | null;
+  gst_number: string | null;
+  contact_person: string | null;
+  mobile_number: string | null;
+  email: string | null;
+  project_name: string | null;
+  tender_reference: string | null;
+  header_image_url: string | null;
+  status: QuotationStatus;
+  gst_percentage: number;
+  gst_amount: number;
+  grand_total: number;
+  created_by: string;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  creator?: Pick<Profile, "full_name" | "email"> | null;
+  items: QuotationItem[];
+  terms: QuotationTerm[];
+};
+
+export type QuotationInput = Omit<
+  Quotation,
+  "id" | "project_name" | "tender_reference" | "gst_amount" | "grand_total" | "created_by" | "updated_by" | "created_at" | "updated_at" | "creator"
+>;
 
 export type Tender = {
   id: string;

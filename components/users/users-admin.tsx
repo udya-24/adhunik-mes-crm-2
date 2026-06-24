@@ -1,4 +1,4 @@
-import { createUserAction, toggleUserAction } from "@/app/actions/users";
+import { createUserAction, toggleQuotationAccessAction, toggleUserAction } from "@/app/actions/users";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -81,11 +81,22 @@ export function UsersAdmin({ profiles, currentUserRole }: { profiles: Profile[];
                   </div>
                 </div>
                 {canManageUsers ? (
-                  <form action={toggleUserAction} className="mt-4">
-                    <input type="hidden" name="id" value={profile.id} />
-                    <input type="hidden" name="is_active" value={String(profile.is_active)} />
-                    <Button variant={profile.is_active ? "danger" : "secondary"}>{profile.is_active ? "Disable" : "Enable"}</Button>
-                  </form>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <form action={toggleUserAction}>
+                      <input type="hidden" name="id" value={profile.id} />
+                      <input type="hidden" name="is_active" value={String(profile.is_active)} />
+                      <Button variant={profile.is_active ? "danger" : "secondary"}>{profile.is_active ? "Disable" : "Enable"}</Button>
+                    </form>
+                    {profile.role === "USER" ? (
+                      <form action={toggleQuotationAccessAction}>
+                        <input type="hidden" name="id" value={profile.id} />
+                        <input type="hidden" name="has_access" value={String(profile.can_access_quotations)} />
+                        <Button variant="secondary">
+                          {profile.can_access_quotations ? "Revoke Quotations" : "Grant Quotations"}
+                        </Button>
+                      </form>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ))}

@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
-import { canAccessRoute } from "@/lib/permissions";
+import { canAccessQuotations, canAccessRoute } from "@/lib/permissions";
 import type { Role } from "@/lib/types";
 
 export async function updateSession(request: NextRequest) {
@@ -46,11 +46,19 @@ export async function updateSession(request: NextRequest) {
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role,is_active")
+      .select("role,is_active,can_access_quotations")
       .eq("id", user.id)
       .maybeSingle();
 
-    if (profile?.is_active && !canAccessRoute(request.nextUrl.pathname, profile.role as Role)) {
+    const quotationDenied =
+      request.nextUrl.pathname.startsWith("/quotations") &&
+      profile?.is_active &&
+      !canAccessQuotations({
+        role: profile.role as Role,
+        can_access_quotations: Boolean(profile.can_access_quotations)
+      });
+
+    if (profile?.is_active && (!canAccessRoute(request.nextUrl.pathname, profile.role as Role) || quotationDenied)) {
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);

@@ -3,6 +3,7 @@ import {
   Boxes,
   ClipboardList,
   FileSpreadsheet,
+  FileText,
   Gauge,
   LineChart,
   Settings,
@@ -14,10 +15,12 @@ import {
 
 export const roles = ["ADMIN", "MANAGER", "USER"] as const;
 export const sourceTypes = ["EXCEL_UPLOAD", "MANUAL_ENTRY"] as const;
+export const defaultCompanyHeaderUrl = "/company/company-header.png";
 
 export const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, roles: ["ADMIN", "MANAGER", "USER"] },
   { href: "/tenders", label: "Tenders", icon: ClipboardList, roles: ["ADMIN", "MANAGER", "USER"] },
+  { href: "/quotations", label: "Quotations", icon: FileText, roles: ["ADMIN", "MANAGER", "USER"] },
   { href: "/imports", label: "Imports", icon: FileSpreadsheet, roles: ["ADMIN", "MANAGER", "USER"] },
   { href: "/assignments", label: "Assignments", icon: Workflow, roles: ["ADMIN", "MANAGER"] },
   { href: "/follow-ups", label: "Follow-Ups", icon: BarChart3, roles: ["ADMIN", "MANAGER", "USER"] },

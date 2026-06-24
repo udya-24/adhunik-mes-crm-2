@@ -28,7 +28,7 @@ supabase/             Schema, RLS policies, storage policies, seed data
 ## Setup
 
 1. Create a Supabase Cloud project.
-2. Run `supabase/schema.sql` in the Supabase SQL editor.
+2. Run `supabase/schema.sql`, then `supabase/quotation_management.sql`, in the Supabase SQL editor.
 3. Create the first Auth user in Supabase, then insert a matching admin profile:
 
 ```sql
