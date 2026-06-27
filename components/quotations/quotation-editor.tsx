@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { createQuotationAction, updateQuotationAction } from "@/app/actions/quotations";
+import { ImsItemCombobox } from "@/components/ims/ims-item-combobox";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, inputClass } from "@/components/ui/field";
@@ -19,7 +20,7 @@ const defaultTerms: QuotationTerm[] = [
   { term_key: "Freight", term_value: "", display_order: 4 }
 ];
 
-const emptyItem: QuotationItem = { line_no: 1, item_description: "", quantity: 1, unit: "Nos", unit_price: 0, total_price: 0 };
+const emptyItem: QuotationItem = { line_no: 1, ims_master_id: null, item_category: "", item_description: "", make: "", model: "", quantity: 1, unit: "Nos", unit_price: 0, total_price: 0 };
 
 export function QuotationEditor({ quotation }: { quotation?: Quotation }) {
   const router = useRouter();
@@ -34,6 +35,7 @@ export function QuotationEditor({ quotation }: { quotation?: Quotation }) {
     mobile_number: quotation?.mobile_number ?? "",
     email: quotation?.email ?? "",
     header_image_url: quotation?.header_image_url ?? null,
+    signature_designation: quotation?.signature_designation ?? "",
     status: quotation?.status ?? "DRAFT" as QuotationStatus,
     gst_percentage: quotation?.gst_percentage ?? 0
   }));
@@ -125,6 +127,27 @@ export function QuotationEditor({ quotation }: { quotation?: Quotation }) {
           <Field label="Contact Person"><input className={inputClass} value={form.contact_person} onChange={(event) => setValue("contact_person", event.target.value)} /></Field>
           <Field label="Mobile Number"><input className={inputClass} value={form.mobile_number} onChange={(event) => setValue("mobile_number", event.target.value)} /></Field>
           <Field label="Email"><input type="email" className={inputClass} value={form.email} onChange={(event) => setValue("email", event.target.value)} /></Field>
+          <Field label="Designation">
+            <input
+              className={inputClass}
+              value={form.signature_designation}
+              onChange={(event) => setValue("signature_designation", event.target.value)}
+              placeholder="Sales Manager"
+              list="quotation-designations"
+            />
+            <datalist id="quotation-designations">
+              {[
+                "Sales Executive",
+                "Senior Sales Executive",
+                "Sales Manager",
+                "General Manager",
+                "Business Development Executive",
+                "Regional Sales Manager",
+                "Director",
+                "Authorized Signatory"
+              ].map((designation) => <option key={designation} value={designation} />)}
+            </datalist>
+          </Field>
           <div className="md:col-span-2 xl:col-span-3">
             <Field label="Address"><textarea className={`${inputClass} min-h-24 w-full py-2`} value={form.address} onChange={(event) => setValue("address", event.target.value)} /></Field>
           </div>
@@ -146,7 +169,7 @@ export function QuotationEditor({ quotation }: { quotation?: Quotation }) {
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="w-20 px-3 py-3 text-center">Sl. No.</th>
-                <th className="px-3 py-3">Item Description</th>
+                <th className="px-3 py-3">IMS Item</th>
                 <th className="w-28 px-3 py-3">Quantity</th>
                 <th className="w-28 px-3 py-3">Units</th>
                 <th className="w-36 px-3 py-3">Unit Price</th>
@@ -158,7 +181,26 @@ export function QuotationEditor({ quotation }: { quotation?: Quotation }) {
               {items.map((item, index) => (
                 <tr key={index} className="border-t border-border align-top">
                   <td className="px-3 py-3 text-center font-bold text-navy-900">{index + 1}</td>
-                  <td className="px-3 py-3"><textarea rows={2} className={`${inputClass} min-h-20 w-full resize-y py-2 leading-5`} value={item.item_description} onChange={(event) => updateItem(index, { item_description: event.target.value })} /></td>
+                  <td className="px-3 py-3">
+                    <ImsItemCombobox
+                      category={item.item_category}
+                      search={item.item_description}
+                      onCategoryChange={(value) => updateItem(index, { item_category: value })}
+                      onSearchChange={(value) => updateItem(index, { item_description: value, ims_master_id: null })}
+                      onSelect={(imsItem) => updateItem(index, {
+                        ims_master_id: imsItem.id,
+                        item_category: imsItem.item_category,
+                        item_description: imsItem.item_description,
+                        make: imsItem.make ?? "",
+                        model: imsItem.model ?? "",
+                        unit: imsItem.unit || item.unit || "Nos"
+                      })}
+                    />
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      <input className={`${inputClass} w-full`} value={item.make ?? ""} placeholder="Make" onChange={(event) => updateItem(index, { make: event.target.value })} />
+                      <input className={`${inputClass} w-full`} value={item.model ?? ""} placeholder="Model" onChange={(event) => updateItem(index, { model: event.target.value })} />
+                    </div>
+                  </td>
                   <td className="px-3 py-3"><input type="number" min="0" step="0.001" className={`${inputClass} w-full`} value={item.quantity} onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })} /></td>
                   <td className="px-3 py-3"><input className={`${inputClass} w-full`} value={item.unit} onChange={(event) => updateItem(index, { unit: event.target.value })} /></td>
                   <td className="px-3 py-3"><input type="number" min="0" step="0.01" className={`${inputClass} w-full`} value={item.unit_price} onChange={(event) => updateItem(index, { unit_price: Number(event.target.value) })} /></td>

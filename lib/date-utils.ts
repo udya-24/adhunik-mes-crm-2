@@ -1,3 +1,5 @@
+import { formatDate as formatStableDate, formatDateTime } from "@/lib/date";
+
 const IST_TIME_ZONE = "Asia/Kolkata";
 export const tenderDateFields = ["contract_date"] as const;
 
@@ -13,49 +15,15 @@ function parseSupabaseUTC(value: string | Date) {
 }
 
 export function formatDateIST(value: string | Date | null) {
-  if (!value) return "-";
-
-  const parts = new Intl.DateTimeFormat("en-IN", {
-    timeZone: IST_TIME_ZONE,
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  }).formatToParts(parseSupabaseUTC(value));
-  const valueByType = new Map(parts.map((part) => [part.type, part.value]));
-
-  return `${valueByType.get("day")} ${valueByType.get("month")} ${valueByType.get("year")}`;
+  return formatStableDate(value);
 }
 
 export function formatDate(dateValue: string | null | undefined) {
-  if (!dateValue) return "-";
-
-  const date = new Date(`${dateValue}T00:00:00`);
-
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: IST_TIME_ZONE
-  }).format(date);
+  return formatStableDate(dateValue);
 }
 
 export function formatDateTimeIST(value: string | Date | null) {
-  if (!value) return "-";
-
-  const parts = new Intl.DateTimeFormat("en-IN", {
-    timeZone: IST_TIME_ZONE,
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true
-  }).formatToParts(parseSupabaseUTC(value));
-  const valueByType = new Map(parts.map((part) => [part.type, part.value]));
-  const period = String(valueByType.get("dayPeriod") ?? "").toUpperCase();
-
-  return `${valueByType.get("day")} ${valueByType.get("month")} ${valueByType.get("year")}, ${valueByType.get("hour")}:${valueByType.get("minute")}:${valueByType.get("second")} ${period}`;
+  return formatDateTime(value);
 }
 
 export function utcNowISOString() {

@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/quotations/quotation-list";
 import { exportQuotationDocx, exportQuotationPdf, formatQuotationCurrency } from "@/lib/quotation-export";
 import { defaultCompanyHeaderUrl } from "@/lib/constants";
+import { formatDate } from "@/lib/date";
+import { quotationCreatorName, quotationSignatureCompany } from "@/lib/quotation-signature";
 import type { Quotation } from "@/lib/types";
 
 export function QuotationView({ quotation, canEdit }: { quotation: Quotation; canEdit: boolean }) {
@@ -120,6 +122,15 @@ export function QuotationView({ quotation, canEdit }: { quotation: Quotation; ca
               </div>
             </div>
           ) : null}
+
+          <div className="mt-10 text-sm text-slate-800">
+            <p className="font-semibold">For</p>
+            <p className="mt-2 font-bold text-navy-900">{quotationSignatureCompany}</p>
+            <div className="h-[52mm]" aria-hidden="true" />
+            <p className="font-semibold">Yours Faithfully,</p>
+            <p className="mt-2 font-bold text-navy-900">{quotationCreatorName(quotation)}</p>
+            <p className="mt-1 font-semibold text-slate-700">{quotation.signature_designation || "-"}</p>
+          </div>
         </div>
       </Card>
     </div>
@@ -136,8 +147,4 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 
 function formatPercentage(value: number) {
   return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(value || 0);
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${value}T00:00:00`));
 }

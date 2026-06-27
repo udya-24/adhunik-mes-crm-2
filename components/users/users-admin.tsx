@@ -1,4 +1,4 @@
-import { createUserAction, toggleQuotationAccessAction, toggleUserAction } from "@/app/actions/users";
+import { createUserAction, togglePiAccessAction, toggleQuotationAccessAction, toggleUserAction } from "@/app/actions/users";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -93,6 +93,15 @@ export function UsersAdmin({ profiles, currentUserRole }: { profiles: Profile[];
                         <input type="hidden" name="has_access" value={String(profile.can_access_quotations)} />
                         <Button variant="secondary">
                           {profile.can_access_quotations ? "Revoke Quotations" : "Grant Quotations"}
+                        </Button>
+                      </form>
+                    ) : null}
+                    {profile.role === "USER" ? (
+                      <form action={togglePiAccessAction}>
+                        <input type="hidden" name="id" value={profile.id} />
+                        <input type="hidden" name="has_access" value={String(profile.can_access_pi)} />
+                        <Button variant="secondary">
+                          {profile.can_access_pi ? "Revoke PI" : "Grant PI"}
                         </Button>
                       </form>
                     ) : null}

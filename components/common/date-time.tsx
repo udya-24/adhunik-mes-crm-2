@@ -1,8 +1,8 @@
-import { formatDateIST, formatDateTimeIST } from "@/lib/date-utils";
+import { formatDate, formatDateTime, formatTime } from "@/lib/date";
 
 type DateTimeProps = {
   value?: string | Date | null;
-  variant?: "date" | "datetime";
+  variant?: "date" | "datetime" | "time";
   fallback?: string;
   className?: string;
 };
@@ -10,7 +10,7 @@ type DateTimeProps = {
 export function DateTime({ value, variant = "datetime", fallback = "-", className }: DateTimeProps) {
   if (!value) return <span className={className}>{fallback}</span>;
 
-  const formatted = variant === "date" ? formatDateIST(value) : formatDateTimeIST(value);
+  const formatted = variant === "date" ? formatDate(value) : variant === "time" ? formatTime(value) : formatDateTime(value);
   const dateTime = typeof value === "string" ? value : value.toISOString();
 
   return (

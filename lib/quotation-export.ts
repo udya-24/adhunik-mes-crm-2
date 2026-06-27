@@ -4,6 +4,8 @@ import { Document, Footer, Header, ImageRun, Packer, Paragraph, Table, TableCell
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { defaultCompanyHeaderUrl } from "@/lib/constants";
+import { formatDate } from "@/lib/date";
+import { quotationCreatorName, quotationSignatureCompany } from "@/lib/quotation-signature";
 import type { Quotation } from "@/lib/types";
 
 const navy: [number, number, number] = [11, 31, 58];
@@ -148,6 +150,7 @@ export async function exportQuotationPdf(quotation: Quotation) {
     });
   }
 
+  drawPdfSignature(doc, quotation, margin, headerHeight, drawPageChrome);
   doc.save(`${safeFileName(quotation.quotation_no)}.pdf`);
 }
 
@@ -188,7 +191,8 @@ export async function exportQuotationDocx(quotation: Quotation) {
         new Paragraph({ spacing: { after: 120 } }),
         commercialSummaryTable(quotation),
         new Paragraph({ spacing: { after: 150 } }),
-        ...(quotation.terms.length ? [termsTable(quotation)] : [])
+        ...(quotation.terms.length ? [termsTable(quotation), new Paragraph({ spacing: { after: 220 } })] : []),
+        ...signatureParagraphs(quotation)
       ]
     }]
   });
@@ -266,6 +270,59 @@ function termsTable(quotation: Quotation) {
   });
 }
 
+function drawPdfSignature(doc: jsPDF, quotation: Quotation, margin: number, headerHeight: number, drawPageChrome: () => void) {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const signatureHeight = 68;
+  let y = lastTableY(doc) + 10;
+  if (y + signatureHeight > pageHeight - 18) {
+    doc.addPage();
+    drawPageChrome();
+    y = 12 + headerHeight;
+  }
+
+  doc.setTextColor(51, 65, 85);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.text("For", margin, y);
+  y += 6;
+  doc.setTextColor(...navy);
+  doc.text(quotationSignatureCompany, margin, y);
+  y += 52;
+  doc.setTextColor(51, 65, 85);
+  doc.text("Yours Faithfully,", margin, y);
+  y += 7;
+  doc.setTextColor(...navy);
+  doc.text(quotationCreatorName(quotation), margin, y);
+  y += 6;
+  doc.setTextColor(71, 85, 105);
+  doc.setFont("helvetica", "normal");
+  doc.text(quotation.signature_designation || "-", margin, y);
+}
+
+function signatureParagraphs(quotation: Quotation) {
+  return [
+    new Paragraph({
+      spacing: { after: 120 },
+      children: [new TextRun({ text: "For", bold: true, color: "334155", size: 20 })]
+    }),
+    new Paragraph({
+      spacing: { after: 2950 },
+      children: [new TextRun({ text: quotationSignatureCompany, bold: true, color: "0B1F3A", size: 20 })]
+    }),
+    new Paragraph({
+      spacing: { after: 120 },
+      children: [new TextRun({ text: "Yours Faithfully,", bold: true, color: "334155", size: 20 })]
+    }),
+    new Paragraph({
+      spacing: { after: 80 },
+      children: [new TextRun({ text: quotationCreatorName(quotation), bold: true, color: "0B1F3A", size: 20 })]
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: quotation.signature_designation || "-", color: "475569", size: 20 })]
+    })
+  ];
+}
+
 function wordCell(text: string, options: { bold?: boolean; shade?: string; color?: string; align?: (typeof AlignmentType)[keyof typeof AlignmentType] } = {}) {
   return new TableCell({
     verticalAlign: VerticalAlign.CENTER,
@@ -302,11 +359,6 @@ function formatPercentage(value: number) {
 
 function quotationSubtotal(quotation: Quotation) {
   return quotation.items.reduce((sum, item) => sum + Number(item.total_price || 0), 0);
-}
-
-function formatDate(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 
 function dataUrlBytes(dataUrl: string) {

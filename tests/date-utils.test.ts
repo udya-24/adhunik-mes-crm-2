@@ -3,21 +3,21 @@ import test from "node:test";
 import { excelDateToISO, formatDate, formatDateIST, formatDateTimeIST, normalizeDateFields, normalizeDateValue } from "../lib/date-utils.ts";
 
 test("formatDateTimeIST converts UTC timestamps to Asia/Kolkata display time", () => {
-  assert.equal(formatDateTimeIST("2026-06-01T08:40:25Z"), "01 Jun 2026, 02:10:25 PM");
+  assert.equal(formatDateTimeIST("2026-06-01T08:40:25Z"), "01/06/2026, 14:10:25");
 });
 
 test("formatDateTimeIST treats Supabase timezone-less timestamps as UTC", () => {
-  assert.equal(formatDateTimeIST("2026-06-01 08:40:25"), "01 Jun 2026, 02:10:25 PM");
+  assert.equal(formatDateTimeIST("2026-06-01 08:40:25"), "01/06/2026, 14:10:25");
 });
 
 test("formatDateIST formats dates in IST and handles empty values", () => {
-  assert.equal(formatDateIST("2026-06-01T08:40:25Z"), "01 Jun 2026");
+  assert.equal(formatDateIST("2026-06-01T08:40:25Z"), "01/06/2026");
   assert.equal(formatDateIST(null), "-");
   assert.equal(formatDateTimeIST(null), "-");
 });
 
 test("formatDate displays date-only contract dates without shifting the day", () => {
-  assert.equal(formatDate("2026-05-26"), "26 May 2026");
+  assert.equal(formatDate("2026-05-26"), "26/05/2026");
   assert.equal(formatDate(null), "-");
   assert.equal(formatDate(undefined), "-");
 });

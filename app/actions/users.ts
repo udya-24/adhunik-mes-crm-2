@@ -57,3 +57,18 @@ export async function toggleQuotationAccessAction(formData: FormData) {
   revalidatePath("/users");
   revalidatePath("/quotations");
 }
+
+export async function togglePiAccessAction(formData: FormData) {
+  await requireRole(["ADMIN"]);
+  const id = String(formData.get("id"));
+  const hasAccess = formData.get("has_access") === "true";
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("profiles")
+    .update({ can_access_pi: !hasAccess })
+    .eq("id", id)
+    .eq("role", "USER");
+  if (error) throw new Error(error.message);
+  revalidatePath("/users");
+  revalidatePath("/proforma-invoices");
+}

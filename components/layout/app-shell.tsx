@@ -17,7 +17,8 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
   const items = navItems.filter(
     (item) =>
       (item.roles as readonly string[]).includes(profile.role) &&
-      (item.href !== "/quotations" || profile.role !== "USER" || profile.can_access_quotations)
+      (item.href !== "/quotations" || profile.role !== "USER" || profile.can_access_quotations) &&
+      (item.href !== "/proforma-invoices" || profile.role !== "USER" || profile.can_access_pi)
   );
 
   useEffect(() => {

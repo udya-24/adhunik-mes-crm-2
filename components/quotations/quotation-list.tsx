@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { inputClass } from "@/components/ui/field";
+import { formatDate } from "@/lib/date";
 import { exportQuotationDocx, exportQuotationPdf, formatQuotationCurrency } from "@/lib/quotation-export";
 import type { Quotation, Role } from "@/lib/types";
 
@@ -128,8 +129,4 @@ function ActionButton({ label, danger, children, ...props }: React.ButtonHTMLAtt
 export function StatusBadge({ status }: { status: Quotation["status"] }) {
   const tone = status === "ACCEPTED" ? "green" : status === "REJECTED" ? "red" : status === "SENT" ? "blue" : "slate";
   return <Badge tone={tone}>{status}</Badge>;
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
 }
