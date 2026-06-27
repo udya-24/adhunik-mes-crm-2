@@ -28,7 +28,9 @@ export async function createUserAction(formData: FormData) {
 
   await supabase.from("profiles").upsert({
     id: data.user.id,
-    ...payload
+    ...payload,
+    can_access_quotations: false,
+    can_access_pi: false
   });
   revalidatePath("/users");
 }

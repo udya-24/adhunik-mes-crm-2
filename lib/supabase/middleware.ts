@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
-import { canAccessProformaInvoices, canAccessQuotations, canAccessRoute } from "@/lib/permissions";
+import { canAccessPI, canAccessQuotations, canAccessRoute } from "@/lib/permissions";
 import type { Role } from "@/lib/types";
 
 export async function updateSession(request: NextRequest) {
@@ -60,7 +60,7 @@ export async function updateSession(request: NextRequest) {
     const piDenied =
       request.nextUrl.pathname.startsWith("/proforma-invoices") &&
       profile?.is_active &&
-      !canAccessProformaInvoices({
+      !canAccessPI({
         role: profile.role as Role,
         can_access_pi: Boolean(profile.can_access_pi)
       });

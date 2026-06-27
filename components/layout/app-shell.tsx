@@ -7,6 +7,7 @@ import { Bell, ChevronsLeft, ChevronsRight, LogOut, Menu, Search, X } from "luci
 import { logoutAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { navItems } from "@/lib/constants";
+import { canAccessPI, canAccessQuotations } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/types";
 import { useUiStore } from "@/store/ui-store";
@@ -17,8 +18,8 @@ export function AppShell({ children, profile }: { children: React.ReactNode; pro
   const items = navItems.filter(
     (item) =>
       (item.roles as readonly string[]).includes(profile.role) &&
-      (item.href !== "/quotations" || profile.role !== "USER" || profile.can_access_quotations) &&
-      (item.href !== "/proforma-invoices" || profile.role !== "USER" || profile.can_access_pi)
+      (item.href !== "/quotations" || canAccessQuotations(profile)) &&
+      (item.href !== "/proforma-invoices" || canAccessPI(profile))
   );
 
   useEffect(() => {

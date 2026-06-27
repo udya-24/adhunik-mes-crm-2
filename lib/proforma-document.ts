@@ -229,8 +229,8 @@ function termsTable(invoice: ProformaInvoice) {
 
 function signatureParagraphs(invoice: ProformaInvoice) {
   return [
-    new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: "For", bold: true, color: "334155", size: 20 })] }),
-    new Paragraph({ spacing: { after: 2950 }, children: [new TextRun({ text: piCompanyName, bold: true, color: "0B1F3A", size: 20 })] }),
+    new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: "For", bold: true, color: "334155", size: 20 })] }),
+    new Paragraph({ spacing: { after: 240 }, children: [new TextRun({ text: piCompanyName, bold: true, color: "0B1F3A", size: 20 })] }),
     new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: "Yours Faithfully,", bold: true, color: "334155", size: 20 })] }),
     new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: piCreatorName(invoice), bold: true, color: "0B1F3A", size: 20 })] }),
     new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: invoice.signature_designation || "-", color: "475569", size: 20 })] }),
@@ -261,7 +261,8 @@ function wordCell(text: string, options: { bold?: boolean; shade?: string; color
 
 function drawPdfSignature(doc: jsPDF, invoice: ProformaInvoice, margin: number, headerHeight: number, footerTop: number, drawChrome: () => void) {
   let y = lastTableY(doc) + 9;
-  if (y + 75 > footerTop) {
+  const signatureHeight = 34;
+  if (y + signatureHeight > footerTop) {
     doc.addPage();
     drawChrome();
     y = 12 + headerHeight;
@@ -273,7 +274,7 @@ function drawPdfSignature(doc: jsPDF, invoice: ProformaInvoice, margin: number, 
   y += 6;
   doc.setTextColor(...navy);
   doc.text(piCompanyName, margin, y);
-  y += 52;
+  y += 6;
   doc.setTextColor(51, 65, 85);
   doc.text("Yours Faithfully,", margin, y);
   y += 7;

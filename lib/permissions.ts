@@ -38,6 +38,8 @@ export function canAccessQuotations(profile: { role: Role; can_access_quotations
   return profile.role === "ADMIN" || profile.role === "MANAGER" || Boolean(profile.can_access_quotations);
 }
 
-export function canAccessProformaInvoices(profile: { role: Role; can_access_pi?: boolean }) {
+export function canAccessPI(profile: { role: Role; can_access_pi?: boolean }) {
   return profile.role === "ADMIN" || profile.role === "MANAGER" || Boolean(profile.can_access_pi);
 }
+
+export const canAccessProformaInvoices = canAccessPI;

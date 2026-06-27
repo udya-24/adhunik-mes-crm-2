@@ -89,17 +89,16 @@ export function PiDocumentPreview({ invoice, showStatus = true }: { invoice: Pro
           </div>
         ) : null}
 
-        <div className="mt-10 text-sm text-slate-800">
+        <div className="mt-8 text-sm text-slate-800">
           <p className="font-semibold">For</p>
           <p className="mt-2 font-bold text-navy-900">{piCompanyName}</p>
-          <div className="h-[52mm]" aria-hidden="true" />
-          <p className="font-semibold">Yours Faithfully,</p>
+          <p className="mt-5 font-semibold">Yours Faithfully,</p>
           <p className="mt-2 font-bold text-navy-900">{piCreatorName(invoice)}</p>
           <p className="mt-1 font-semibold text-slate-700">{invoice.signature_designation || "-"}</p>
           <p className="mt-1 text-slate-600">{[invoice.signature_email, invoice.signature_mobile].filter(Boolean).join(" | ") || "-"}</p>
         </div>
 
-        <div className="mt-10 grid gap-5 border-t border-border pt-5 text-xs text-slate-700 md:grid-cols-[0.8fr_1.2fr]">
+        <div className="mt-8 grid gap-5 border-t border-border pt-5 text-xs text-slate-700 md:grid-cols-[0.8fr_1.2fr]">
           <div>
             {piFixedFooter.registeredOffice.map((line) => <p key={line} className={line.endsWith(":") ? "font-bold text-navy-900" : ""}>{line}</p>)}
           </div>

@@ -6,7 +6,7 @@ import { Field, inputClass } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
 import { roles } from "@/lib/constants";
 import type { Profile, Role } from "@/lib/types";
-import { ShieldCheck, UsersRound } from "lucide-react";
+import { Check, ShieldCheck, UsersRound } from "lucide-react";
 
 export function UsersAdmin({ profiles, currentUserRole }: { profiles: Profile[]; currentUserRole: Role }) {
   const canManageUsers = currentUserRole === "ADMIN";
@@ -81,30 +81,32 @@ export function UsersAdmin({ profiles, currentUserRole }: { profiles: Profile[];
                   </div>
                 </div>
                 {canManageUsers ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <form action={toggleUserAction}>
-                      <input type="hidden" name="id" value={profile.id} />
-                      <input type="hidden" name="is_active" value={String(profile.is_active)} />
-                      <Button variant={profile.is_active ? "danger" : "secondary"}>{profile.is_active ? "Disable" : "Enable"}</Button>
-                    </form>
-                    {profile.role === "USER" ? (
-                      <form action={toggleQuotationAccessAction}>
+                  <div className="mt-4 space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      <form action={toggleUserAction}>
                         <input type="hidden" name="id" value={profile.id} />
-                        <input type="hidden" name="has_access" value={String(profile.can_access_quotations)} />
-                        <Button variant="secondary">
-                          {profile.can_access_quotations ? "Revoke Quotations" : "Grant Quotations"}
-                        </Button>
+                        <input type="hidden" name="is_active" value={String(profile.is_active)} />
+                        <Button variant={profile.is_active ? "danger" : "secondary"}>{profile.is_active ? "Disable" : "Enable"}</Button>
                       </form>
-                    ) : null}
+                    </div>
                     {profile.role === "USER" ? (
-                      <form action={togglePiAccessAction}>
-                        <input type="hidden" name="id" value={profile.id} />
-                        <input type="hidden" name="has_access" value={String(profile.can_access_pi)} />
-                        <Button variant="secondary">
-                          {profile.can_access_pi ? "Revoke PI" : "Grant PI"}
-                        </Button>
-                      </form>
-                    ) : null}
+                      <div className="grid gap-2 rounded-lg border border-border bg-white p-3">
+                        <PermissionToggle
+                          label="Quotation Access"
+                          enabled={profile.can_access_quotations}
+                          action={toggleQuotationAccessAction}
+                          profileId={profile.id}
+                        />
+                        <PermissionToggle
+                          label="Proforma Invoice Access"
+                          enabled={profile.can_access_pi}
+                          action={togglePiAccessAction}
+                          profileId={profile.id}
+                        />
+                      </div>
+                    ) : (
+                      <p className="rounded-lg border border-border bg-white p-3 text-xs font-semibold text-slate-500">Admins and managers have quotation and PI access automatically.</p>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -113,5 +115,33 @@ export function UsersAdmin({ profiles, currentUserRole }: { profiles: Profile[];
         </Card>
       </div>
     </div>
+  );
+}
+
+function PermissionToggle({
+  label,
+  enabled,
+  action,
+  profileId
+}: {
+  label: string;
+  enabled: boolean;
+  action: (formData: FormData) => Promise<void>;
+  profileId: string;
+}) {
+  return (
+    <form action={action}>
+      <input type="hidden" name="id" value={profileId} />
+      <input type="hidden" name="has_access" value={String(enabled)} />
+      <button type="submit" className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-navy-50">
+        <span className="flex items-center gap-2">
+          <span className={`grid h-5 w-5 place-items-center rounded border ${enabled ? "border-navy-700 bg-navy-900 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+            <Check size={13} />
+          </span>
+          {label}
+        </span>
+        <span className={`text-xs font-bold ${enabled ? "text-emerald-700" : "text-slate-400"}`}>{enabled ? "Enabled" : "Disabled"}</span>
+      </button>
+    </form>
   );
 }
