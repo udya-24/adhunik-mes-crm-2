@@ -37,23 +37,26 @@ export async function searchImsItemsAction(input: { category?: string; search?: 
   await requireRole(["ADMIN", "MANAGER", "USER"]);
   const supabase = createAdminClient();
   const search = cleanText(input.search);
-  const limit = Math.min(30, Math.max(5, Number(input.limit) || 12));
+  const limit = Math.min(30, Math.max(5, Number(input.limit) || 20));
+  const tokens = tokenizeSearch(search ?? "");
+  const candidateLimit = Math.max(120, limit * 8);
   let query = supabase
     .from("ims_master")
     .select("id,item_code,item_category,item_description,make,model,unit,hsn_code,is_active")
     .eq("is_active", true)
-    .order("item_description")
-    .limit(limit);
+    .limit(search ? candidateLimit : limit);
 
   if (input.category) query = query.eq("item_category", input.category);
   if (search) {
-    const escaped = search.replaceAll("%", "\\%").replaceAll("_", "\\_");
-    query = query.or(`item_description.ilike.%${escaped}%,item_category.ilike.%${escaped}%,model.ilike.%${escaped}%,make.ilike.%${escaped}%`);
+    query = query.or(buildCandidateFilter(search, tokens));
+  } else {
+    query = query.order("item_description");
   }
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data ?? []) as Pick<ImsMasterItem, "id" | "item_code" | "item_category" | "item_description" | "make" | "model" | "unit" | "hsn_code" | "is_active">[];
+  const rows = (data ?? []) as Pick<ImsMasterItem, "id" | "item_code" | "item_category" | "item_description" | "make" | "model" | "unit" | "hsn_code" | "is_active">[];
+  return search ? rankImsItems(rows, search, tokens).slice(0, limit) : rows;
 }
 
 export async function getImsCategoriesAction() {
@@ -242,4 +245,111 @@ async function loadExistingByKeys(keys: string[]): Promise<ExistingKey> {
 
 function mergeDefined(item: NormalizedItem) {
   return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== null && value !== ""));
+}
+
+function buildCandidateFilter(search: string, tokens: string[]) {
+  const fields = ["item_code", "item_description", "item_category", "make", "model", "hsn_code"];
+  const terms = Array.from(new Set([search, ...tokens, ...tokens.filter((token) => token.length >= 4).map((token) => token.slice(0, 3))].filter(Boolean)));
+  return terms
+    .flatMap((term) => fields.map((field) => `${field}.ilike.%${escapeLike(term)}%`))
+    .join(",");
+}
+
+function escapeLike(value: string) {
+  return value.replaceAll("%", "\\%").replaceAll("_", "\\_").replaceAll(",", "\\,");
+}
+
+function tokenizeSearch(value: string) {
+  const normalized = normalizeSearchText(value);
+  const baseTokens = normalized.match(/[a-z]+|\d+[a-z]*|[a-z]*\d+/g) ?? [];
+  const splitTokens = baseTokens.flatMap((token) => token.match(/[a-z]+|\d+[a-z]*/g) ?? [token]);
+  return Array.from(new Set([...baseTokens, ...splitTokens].filter((token) => token.length > 0)));
+}
+
+function rankImsItems<T extends Pick<ImsMasterItem, "item_code" | "item_category" | "item_description" | "make" | "model" | "unit" | "hsn_code">>(items: T[], search: string, tokens: string[]) {
+  const query = normalizeSearchText(search);
+  const compactQuery = compact(search);
+  return items
+    .map((item) => ({ item, score: scoreImsItem(item, query, compactQuery, tokens) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || String(a.item.item_description).localeCompare(String(b.item.item_description), "en-IN"))
+    .map(({ item }) => item);
+}
+
+function scoreImsItem(item: Pick<ImsMasterItem, "item_code" | "item_category" | "item_description" | "make" | "model" | "unit" | "hsn_code">, query: string, compactQuery: string, tokens: string[]) {
+  const code = normalizeSearchText(item.item_code ?? "");
+  const codeCompact = compact(item.item_code ?? "");
+  const description = normalizeSearchText(item.item_description ?? "");
+  const category = normalizeSearchText(item.item_category ?? "");
+  const make = normalizeSearchText(item.make ?? "");
+  const model = normalizeSearchText(item.model ?? "");
+  const hsn = normalizeSearchText(item.hsn_code ?? "");
+  const searchable = [code, description, category, make, model, hsn].filter(Boolean).join(" ");
+  const searchableCompact = compact(searchable);
+  const words = tokenizeSearch(searchable);
+  let score = 0;
+
+  if (code && code === query) score += 10000;
+  if (codeCompact && codeCompact === compactQuery) score += 9800;
+  if (description.startsWith(query)) score += 8000;
+  if (compact(description).startsWith(compactQuery)) score += 7600;
+  if (compactQuery && searchableCompact.includes(compactQuery)) score += 1200;
+
+  let matchedTokens = 0;
+  for (const token of tokens) {
+    const compactToken = compact(token);
+    const tokenScore = scoreToken(token, compactToken, { code, description, category, make, model, hsn, words, searchableCompact });
+    if (tokenScore > 0) matchedTokens += 1;
+    score += tokenScore;
+  }
+
+  if (tokens.length && matchedTokens === tokens.length) score += 5000;
+  else score += matchedTokens * 700;
+
+  return score;
+}
+
+function scoreToken(
+  token: string,
+  compactToken: string,
+  fields: { code: string; description: string; category: string; make: string; model: string; hsn: string; words: string[]; searchableCompact: string }
+) {
+  if (!token) return 0;
+  if (fields.code === token || compact(fields.code) === compactToken) return 2200;
+  if (fields.description.split(" ").some((word) => word === token)) return 1500;
+  if (fields.description.includes(token)) return 1100;
+  if (fields.category.includes(token) || fields.make.includes(token) || fields.model.includes(token)) return 850;
+  if (fields.hsn.includes(token)) return 650;
+  if (fields.searchableCompact.includes(compactToken)) return 550;
+  if (fields.words.some((word) => isFuzzyMatch(token, word))) return 300;
+  return 0;
+}
+
+function normalizeSearchText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
+function compact(value: string) {
+  return normalizeSearchText(value).replaceAll(" ", "");
+}
+
+function isFuzzyMatch(token: string, word: string) {
+  if (token.length < 4 || word.length < 4) return false;
+  const distance = levenshtein(token, word);
+  return distance <= (token.length > 5 || word.length > 5 ? 2 : 1);
+}
+
+function levenshtein(a: string, b: string) {
+  const rows = Array.from({ length: a.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= b.length; i += 1) {
+    let previous = i;
+    for (let j = 1; j <= a.length; j += 1) {
+      const current = rows[j];
+      rows[j] = b[i - 1] === a[j - 1] ? rows[j - 1] : Math.min(rows[j - 1], previous, rows[j]) + 1;
+      rows[j - 1] = previous;
+      previous = current;
+    }
+    rows[a.length] = previous;
+  }
+  return rows[a.length];
 }
