@@ -18,6 +18,7 @@ const defaultTenderQueryParams: TenderQueryParams = {
   status: "",
   source: "",
   assignment: "",
+  assignedTo: "",
   page: 1,
   pageSize: 50
 };
@@ -54,6 +55,11 @@ export function useTenders(params: Partial<TenderQueryParams> = {}) {
       if (queryParams.source) query = query.eq("source_type", queryParams.source);
       if (queryParams.assignment === "assigned") query = query.not("assigned_to", "is", null);
       if (queryParams.assignment === "unassigned") query = query.is("assigned_to", null);
+      if (queryParams.assignedTo.startsWith("user:")) query = query.eq("assigned_to", queryParams.assignedTo.replace("user:", ""));
+      if (queryParams.assignedTo.startsWith("role:")) {
+        const ids = queryParams.assignedTo.split(":")[2]?.split(",").filter(Boolean) ?? [];
+        query = ids.length ? query.in("assigned_to", ids) : query.is("assigned_to", null).not("assigned_to", "is", null);
+      }
       if (queryParams.search.trim()) query = query.or(buildSearchOr(queryParams.search));
 
       const from = (Math.max(queryParams.page, 1) - 1) * queryParams.pageSize;
@@ -131,9 +137,9 @@ async function enrichTendersWithAssignments(supabase: SupabaseBrowserClient, ten
 
   const { data, error } = await supabase
     .from("lead_assignments")
-    .select("tender_id,assigned_to,assigned_by,assigned_date,assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role),assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
+    .select("tender_id,assigned_to,assigned_by,assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role),assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
     .in("tender_id", tenders.map((tender) => tender.id))
-    .order("assigned_date", { ascending: false });
+    .limit(10000);
 
   if (error) {
     logQueryError("useTenders lead_assignments enrichment", error);
@@ -153,7 +159,6 @@ async function enrichTendersWithAssignments(supabase: SupabaseBrowserClient, ten
       ...tender,
       assigned_to: assignment.assigned_to,
       assigned_by: assignment.assigned_by,
-      assigned_date: assignment.assigned_date,
       assigned_profile: firstProfile(assignment.assignee),
       assigned_by_profile: firstProfile(assignment.assigner)
     } as unknown as Tender;

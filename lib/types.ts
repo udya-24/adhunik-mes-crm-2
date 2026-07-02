@@ -199,7 +199,6 @@ export type Tender = {
   assigned_by: string | null;
   assigned_user_name?: string | null;
   assigned_user_email?: string | null;
-  assigned_date?: string | null;
   assigned_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
   assigned_by_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
   uploaded_by_profile?: Pick<Profile, "full_name" | "email" | "role"> | null;
@@ -297,7 +296,6 @@ export type LeadAssignment = {
   tender_id: string;
   assigned_to: string;
   assigned_by: string;
-  assigned_date: string;
   remarks: string | null;
   tender?: Pick<Tender, "tender_id" | "bidder_name" | "ge" | "cwe" | "contract_date"> | null;
   assignee?: Pick<Profile, "full_name" | "email" | "role"> | null;
@@ -390,7 +388,12 @@ export type AgeingBucket = {
 export type UserPerformanceRow = {
   userId: string;
   userName: string;
+  email: string;
   role: Role;
+  managerId: string | null;
+  managerName: string;
+  isActive: boolean;
+  createdAt: string;
   assignedTenders: number;
   uploadedTenders: number;
   followUps: number;

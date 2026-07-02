@@ -5,17 +5,21 @@ import { UserPerformanceTable } from "@/components/analytics/user-performance-ta
 import { AnalyticsOverview } from "@/components/dashboard/analytics-overview";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import type { AnalyticsBreakdowns, DashboardMetrics, UserPerformanceRow } from "@/lib/types";
+import type { AnalyticsBreakdowns, DashboardMetrics, Role, UserPerformanceRow } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 export function AnalyticsCharts({
   metrics,
   breakdowns,
-  userPerformance
+  userPerformance,
+  currentUserId,
+  currentUserRole
 }: {
   metrics: DashboardMetrics;
   breakdowns: AnalyticsBreakdowns;
   userPerformance: UserPerformanceRow[];
+  currentUserId: string | null;
+  currentUserRole: Role | null;
 }) {
   const chartGroups = [
     ["Our Value by User", breakdowns.ourValueByUser, "ourValue"],
@@ -38,7 +42,7 @@ export function AnalyticsCharts({
     <div className="space-y-6">
       <PageHeader eyebrow="Analytics" title="Tender Intelligence" description="GE, CWE, contractor, and user-wise tender analysis with value and conversion context." />
       <AnalyticsOverview metrics={metrics} />
-      <UserPerformanceTable rows={userPerformance} />
+      <UserPerformanceTable rows={userPerformance} currentUserId={currentUserId} currentUserRole={currentUserRole} />
       <div className="grid gap-4 xl:grid-cols-2">
         {chartGroups.map(([label, rows, primaryKey]) => (
           <Card key={label}>

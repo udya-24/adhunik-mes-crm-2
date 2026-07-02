@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState, useTransition } from "
 import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, MessageCircle, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addLeadRemarkAction, assignLeadAction, assignLeadToMeAction, bulkTenderAction, deleteTenderAction, getTenderHistoryAction, updateLeadStageAction, updateTenderAction } from "@/app/actions/tenders";
+import { UserAnalyticsDrawer } from "@/components/analytics/user-analytics-drawer";
 import { ContractDate } from "@/components/common/contract-date";
 import { DateTime } from "@/components/common/date-time";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +58,7 @@ const editTextFields = [
 
 type TenderDataGridProps = {
   users: Profile[];
+  analyticsUsers: Profile[];
   leadStatuses: LeadStatusMaster[];
   canAssign: boolean;
   canDelete: boolean;
@@ -66,6 +68,7 @@ type TenderDataGridProps = {
 
 export function TenderDataGrid({
   users,
+  analyticsUsers,
   leadStatuses,
   canAssign,
   canDelete,
@@ -79,6 +82,7 @@ export function TenderDataGrid({
   const [status, setStatus] = useState("");
   const [source, setSource] = useState("");
   const [assignment, setAssignment] = useState("");
+  const [assignedTo, setAssignedTo] = useState("");
   const [page, setPage] = useState(() => {
     if (typeof window === "undefined") return 1;
     return Number(localStorage.getItem("tender-page") ?? "1") || 1;
@@ -88,6 +92,7 @@ export function TenderDataGrid({
     return Number(localStorage.getItem("tender-page-size") ?? "50") || 50;
   });
   const [openTender, setOpenTender] = useState<Tender | null>(null);
+  const [analyticsUserId, setAnalyticsUserId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<Tender | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Tender | null>(null);
   const [deleteError, setDeleteError] = useState("");
@@ -96,7 +101,7 @@ export function TenderDataGrid({
   const [bulkAssignedTo, setBulkAssignedTo] = useState("");
   const [bulkError, setBulkError] = useState("");
   const didMountFiltersRef = useRef(false);
-  const { data: tenderPage = { rows: [], total: 0 }, error, isLoading, isFetching } = useTenders({ search, status, source, assignment, page, pageSize });
+  const { data: tenderPage = { rows: [], total: 0 }, error, isLoading, isFetching } = useTenders({ search, status, source, assignment, assignedTo, page, pageSize });
   const tenders = tenderPage.rows;
   const totalTenders = tenderPage.total;
   const totalPages = Math.max(1, Math.ceil(totalTenders / pageSize));
@@ -120,7 +125,11 @@ export function TenderDataGrid({
     { label: "Actions", className: stickyActionsHeaderClass }
   ];
 
-  const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const userById = useMemo(() => new Map([...users, ...analyticsUsers].map((user) => [user.id, user])), [users, analyticsUsers]);
+  const assignedCounts = useAssignedTenderCounts(analyticsUsers);
+  const canOpenUserAnalytics = currentUserRole === "ADMIN" || currentUserRole === "MANAGER";
+  const assignedToOptions = useMemo(() => buildAssignedToOptions(analyticsUsers), [analyticsUsers]);
+  const selectedAnalyticsUser = analyticsUserId ? userById.get(analyticsUserId) ?? null : null;
   const selectedTenders = useMemo(() => tenders.filter((tender) => selectedIds.includes(tender.id)), [selectedIds, tenders]);
   const allPageSelected = Boolean(tenders.length) && tenders.every((tender) => selectedIds.includes(tender.id));
   const visibleTenderIdKey = useMemo(() => tenders.map((tender) => tender.id).join("|"), [tenders]);
@@ -143,7 +152,7 @@ export function TenderDataGrid({
       return;
     }
     setPage(1);
-  }, [search, status, source, assignment, pageSize]);
+  }, [search, status, source, assignment, assignedTo, pageSize]);
 
   useEffect(() => {
     if (!isFetching && page > totalPages) setPage(totalPages);
@@ -307,7 +316,7 @@ export function TenderDataGrid({
   return (
     <>
     <Card className="space-y-4 overflow-hidden">
-      <div className="grid gap-3 lg:grid-cols-[1fr_170px_170px_170px_auto]">
+      <div className="grid gap-3 lg:grid-cols-[1fr_160px_160px_160px_220px_auto]">
         <label className="relative">
           <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
           <input className={`${inputClass} w-full pl-10`} placeholder="Search tender, GE, CWE, bidder" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -324,6 +333,12 @@ export function TenderDataGrid({
           <option value="">All assignments</option>
           <option value="assigned">Assigned</option>
           <option value="unassigned">Unassigned</option>
+        </select>
+        <select className={inputClass} value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)} aria-label="Assigned To">
+          <option value="">Assigned To: All Users</option>
+          {assignedToOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
         </select>
         <Button variant="secondary" onClick={exportCsv}>
           <Download size={16} />
@@ -358,11 +373,15 @@ export function TenderDataGrid({
         )}
         {!isLoading && !tenders.length && <div className="rounded-lg border border-border bg-slate-50 p-4 text-sm text-slate-600">No tender records found.</div>}
         {tenders.map((tender) => (
-          <button
+          <div
             key={tender.id}
-            type="button"
+            role="button"
+            tabIndex={0}
             className="rounded-lg border border-border bg-white p-4 text-left shadow-sm transition active:scale-[0.99]"
             onClick={() => setOpenTender(tender)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") setOpenTender(tender);
+            }}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -378,10 +397,10 @@ export function TenderDataGrid({
               <MobileTenderFact label="Our Value" value={formatCurrencyDisplay(tender.our_value)} />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} />
+              <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} assignedCount={assignedCounts.get(tender.assigned_to ?? "") ?? 0} canOpenAnalytics={canOpenUserAnalytics || tender.assigned_to === currentUserId} onOpenAnalytics={setAnalyticsUserId} />
               <SourceTypeBadge sourceType={tender.source_type} />
             </div>
-          </button>
+          </div>
         ))}
       </div>
       <div className="relative hidden w-full overflow-x-auto table-scroll md:block">
@@ -456,7 +475,7 @@ export function TenderDataGrid({
                 <td className="px-2 py-1.5 font-semibold text-slate-900">{formatCurrencyDisplay(tender.awarded_value)}</td>
                 <td className="px-2 py-1.5 font-semibold text-slate-900">{formatCurrencyDisplay(tender.our_value)}</td>
                 <td className="px-2 py-1.5">
-                  <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} />
+                  <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} assignedCount={assignedCounts.get(tender.assigned_to ?? "") ?? 0} canOpenAnalytics={canOpenUserAnalytics || tender.assigned_to === currentUserId} onOpenAnalytics={setAnalyticsUserId} />
                 </td>
                 <td className={stickyStatusCellClass}>
                   <LeadStageBadge tender={tender} leadStatuses={leadStatuses} />
@@ -559,12 +578,29 @@ export function TenderDataGrid({
       canAssign={canAssign}
       currentUserId={currentUserId}
       currentUserRole={currentUserRole ?? null}
+      onOpenUserAnalytics={setAnalyticsUserId}
       onAssignedToCurrentUser={async () => {
         setOpenTender((current) => (current && currentUserId ? { ...current, assigned_to: currentUserId, assigned_by: currentUserId } : current));
         await invalidateTenderQueries(queryClient);
         await queryClient.invalidateQueries({ queryKey: ["tender-details"] });
       }}
       onClose={() => setOpenTender(null)}
+    />
+    <UserAnalyticsDrawer
+      user={selectedAnalyticsUser}
+      canOpen={Boolean(analyticsUserId)}
+      currentUserId={currentUserId}
+      currentUserRole={currentUserRole ?? null}
+      onViewAssignedTenders={(userId) => {
+        setAssignedTo(`user:${userId}`);
+        setAnalyticsUserId(null);
+      }}
+      onAssignMoreTenders={() => {
+        setAssignedTo("");
+        setAssignment("unassigned");
+        setAnalyticsUserId(null);
+      }}
+      onClose={() => setAnalyticsUserId(null)}
     />
     </>
   );
@@ -573,6 +609,61 @@ export function TenderDataGrid({
 function canEditTenderClient(tender: Tender, currentUserId: string | null, role: Role | null) {
   if (!currentUserId || !role) return false;
   return role === "ADMIN" || role === "MANAGER" || tender.uploaded_by === currentUserId || tender.assigned_to === currentUserId;
+}
+
+function buildAssignedToOptions(users: Profile[]) {
+  const activeUsers = users.filter((user) => user.is_active !== false);
+  const userIds = activeUsers.filter((user) => user.role === "USER").map((user) => user.id).join(",");
+  const managerIds = activeUsers.filter((user) => user.role === "MANAGER").map((user) => user.id).join(",");
+  return [
+    { value: `role:USER:${userIds}`, label: "All Users" },
+    { value: `role:MANAGER:${managerIds}`, label: "All Managers" },
+    ...activeUsers.map((user) => ({ value: `user:${user.id}`, label: formatAssignableUserOption(user) }))
+  ];
+}
+
+function useAssignedTenderCounts(users: Profile[]) {
+  const userIds = useMemo(() => users.map((user) => user.id), [users]);
+  const { data = new Map<string, number>() } = useQuery({
+    queryKey: ["tender-assigned-counts", userIds.join("|")],
+    enabled: userIds.length > 0,
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("tenders")
+        .select("assigned_to")
+        .eq("is_deleted", false)
+        .is("deleted_at", null)
+        .in("assigned_to", userIds)
+        .limit(10000);
+      if (error) {
+        console.error("[TenderDataGrid] assigned count lookup error", error.message, error);
+        return new Map<string, number>();
+      }
+      const counts = new Map<string, number>();
+      (data ?? []).forEach((row) => {
+        if (row.assigned_to) counts.set(row.assigned_to, (counts.get(row.assigned_to) ?? 0) + 1);
+      });
+      return counts;
+    }
+  });
+  return data;
+}
+
+function getInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "U";
+}
+
+function formatDateTimeText(value?: string | null) {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 }
 
 function getPageNumbers(currentPage: number, totalPages: number) {
@@ -1034,12 +1125,57 @@ function SourceTypeBadge({ sourceType }: { sourceType: Tender["source_type"] }) 
   );
 }
 
-function AssignmentBadge({ tender, userById, currentUserId }: { tender: Tender; userById: Map<string, Profile>; currentUserId: string | null }) {
+function AssignmentBadge({
+  tender,
+  userById,
+  currentUserId,
+  assignedCount = 0,
+  canOpenAnalytics = false,
+  onOpenAnalytics
+}: {
+  tender: Tender;
+  userById: Map<string, Profile>;
+  currentUserId: string | null;
+  assignedCount?: number;
+  canOpenAnalytics?: boolean;
+  onOpenAnalytics?: (userId: string) => void;
+}) {
   if (!tender.assigned_to) return <Badge tone="orange">Unassigned</Badge>;
+  const profile = tender.assigned_profile ?? userById.get(tender.assigned_to) ?? null;
+  const displayName = assignedToLabel(tender, userById);
+  const initials = getInitials(displayName);
+  const role = profile?.role ?? "USER";
+  const title = `${assignedCount} assigned tenders`;
+  const content = (
+    <>
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-navy-900 text-[10px] font-bold text-white">{initials}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-bold text-navy-900">{displayName}</span>
+        <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600 ring-1 ring-slate-200">{role}</span>
+      </span>
+    </>
+  );
+  if (!canOpenAnalytics || !onOpenAnalytics) {
+    return (
+      <span className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-white px-2 py-1 text-left shadow-sm" title={title}>
+        {content}
+      </span>
+    );
+  }
   return (
-    <Badge tone={currentUserId && tender.assigned_to === currentUserId ? "blue" : "green"} className="max-w-full whitespace-normal text-left leading-4">
-      {assignedToLabel(tender, userById)}
-    </Badge>
+    <button
+      type="button"
+      className={`flex max-w-full items-center gap-2 rounded-lg border px-2 py-1 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+        currentUserId && tender.assigned_to === currentUserId ? "border-blue-200 bg-blue-50" : "border-emerald-200 bg-white"
+      }`}
+      title={title}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpenAnalytics(tender.assigned_to as string);
+      }}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -1111,6 +1247,10 @@ function AssignToMeButton({
   );
 }
 
+function firstProfile<T>(profile: T | T[] | null | undefined) {
+  return Array.isArray(profile) ? profile[0] ?? null : profile ?? null;
+}
+
 function TenderDetailsDrawer({
   tender,
   userById,
@@ -1120,6 +1260,7 @@ function TenderDetailsDrawer({
   currentUserId,
   currentUserRole,
   onAssignedToCurrentUser,
+  onOpenUserAnalytics,
   onClose
 }: {
   tender: Tender | null;
@@ -1130,6 +1271,7 @@ function TenderDetailsDrawer({
   currentUserId: string | null;
   currentUserRole: Role | null;
   onAssignedToCurrentUser: () => Promise<void> | void;
+  onOpenUserAnalytics: (userId: string) => void;
   onClose: () => void;
 }) {
   const { data: details = emptyTenderDetails, isLoading } = useTenderDetails(tender?.id);
@@ -1163,7 +1305,7 @@ function TenderDetailsDrawer({
             <div className="flex flex-wrap gap-2">
               <LeadStageBadge tender={tender} leadStatuses={leadStatuses} />
               <SourceTypeBadge sourceType={tender.source_type} />
-              <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} />
+              <AssignmentBadge tender={tender} userById={userById} currentUserId={currentUserId} canOpenAnalytics={currentUserRole === "ADMIN" || currentUserRole === "MANAGER" || tender.assigned_to === currentUserId} onOpenAnalytics={onOpenUserAnalytics} />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
@@ -1220,7 +1362,7 @@ function TenderDetailsDrawer({
                 </Section>
 
                 <Section title="Assignment Information">
-                  <AssignmentInfo tender={tender} details={details} userById={userById} currentUserId={currentUserId} />
+                  <AssignmentInfo tender={tender} details={details} userById={userById} currentUserId={currentUserId} currentUserRole={currentUserRole} onOpenUserAnalytics={onOpenUserAnalytics} />
                 </Section>
 
                 <Section title="Tender Information">
@@ -1304,7 +1446,7 @@ function TenderDetailsDrawer({
                         title={`Assigned to ${formatProfileDisplayName(assignment.assignee)}`}
                         detail={
                           <>
-                              Assigned by {formatProfileDisplayName(assignment.assigner)} - Assigned date <DateTime value={assignment.assigned_date} /> - {assignment.remarks || "No remarks"}
+                              Assigned by {formatProfileDisplayName(assignment.assigner)} - {assignment.remarks || "No remarks"}
                           </>
                         }
                         />
@@ -1391,29 +1533,38 @@ function AssignmentInfo({
   tender,
   details,
   userById,
-  currentUserId
+  currentUserId,
+  currentUserRole,
+  onOpenUserAnalytics
 }: {
   tender: Tender;
   details: TenderDetails;
   userById: Map<string, Profile>;
   currentUserId: string | null;
+  currentUserRole: Role | null;
+  onOpenUserAnalytics: (userId: string) => void;
 }) {
   const latestAssignment = details.assignments[0] ?? null;
   const uploadedByProfile = tender.uploaded_by_profile ?? null;
   const assignedToProfile = latestAssignment?.assignee ?? tender.assigned_profile ?? (tender.assigned_to ? userById.get(tender.assigned_to) : null);
   const assignedByProfile = latestAssignment?.assigner ?? tender.assigned_by_profile ?? (tender.assigned_by ? userById.get(tender.assigned_by) : null);
-  const assignedOn = latestAssignment?.assigned_date ?? tender.assigned_date ?? null;
   const assignedRole = assignedToProfile?.role ?? tender.assigned_profile?.role ?? "Unknown User";
+  const canOpenAssigned = Boolean(tender.assigned_to && (currentUserRole === "ADMIN" || currentUserRole === "MANAGER" || tender.assigned_to === currentUserId));
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <InfoValue label="Uploaded By">{formatProfileDisplayName(uploadedByProfile)}</InfoValue>
       <InfoValue label="Assigned To">
-        <span>{tender.assigned_to ? formatProfileDisplayName(assignedToProfile) : "Unassigned"}</span>
+        {tender.assigned_to && canOpenAssigned ? (
+          <button type="button" className="font-semibold text-navy-900 underline-offset-2 hover:underline" onClick={() => onOpenUserAnalytics(tender.assigned_to as string)}>
+            {formatProfileDisplayName(assignedToProfile)}
+          </button>
+        ) : (
+          <span>{tender.assigned_to ? formatProfileDisplayName(assignedToProfile) : "Unassigned"}</span>
+        )}
         {currentUserId && tender.assigned_to === currentUserId && <Badge tone="blue">My Lead</Badge>}
       </InfoValue>
       <InfoValue label="Assigned By">{tender.assigned_by || latestAssignment ? formatProfileDisplayName(assignedByProfile) : "Unknown User"}</InfoValue>
-      <InfoValue label="Assigned On"><DateTime value={assignedOn} /></InfoValue>
       <InfoValue label="Role">{tender.assigned_to ? assignedRole : "Unknown User"}</InfoValue>
     </div>
   );
@@ -1665,9 +1816,8 @@ type SupabaseBrowserClient = ReturnType<typeof createClient>;
 async function fetchAssignmentHistory(supabase: SupabaseBrowserClient, tenderUuid: string, profile: Pick<Profile, "id" | "role"> | null): Promise<LeadAssignment[]> {
   let query = supabase
     .from("lead_assignments")
-    .select("*, tender:tenders!lead_assignments_tender_id_fkey(tender_id,bidder_name,ge,cwe), assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role), assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
-    .eq("tender_id", tenderUuid)
-    .order("assigned_date", { ascending: false });
+    .select("id,tender_id,assigned_to,assigned_by,remarks,tender:tenders!lead_assignments_tender_id_fkey(tender_id,bidder_name,ge,cwe,contract_date), assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role), assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
+    .eq("tender_id", tenderUuid);
 
   if (profile?.role === "USER") query = query.eq("assigned_to", profile.id);
 
@@ -1678,7 +1828,12 @@ async function fetchAssignmentHistory(supabase: SupabaseBrowserClient, tenderUui
     return [];
   }
 
-  return (data ?? []) as LeadAssignment[];
+  return (data ?? []).map((assignment) => ({
+    ...assignment,
+    tender: firstProfile(assignment.tender),
+    assignee: firstProfile(assignment.assignee),
+    assigner: firstProfile(assignment.assigner)
+  })) as unknown as LeadAssignment[];
 }
 
 async function fetchTenderFollowUps(supabase: SupabaseBrowserClient, tenderUuid: string, profile: Pick<Profile, "id" | "role"> | null): Promise<TenderFollowUp[]> {

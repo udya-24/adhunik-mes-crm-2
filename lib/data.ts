@@ -281,6 +281,37 @@ export async function getAssignableUsers() {
   return (data ?? []) as Profile[];
 }
 
+export async function getTenderAnalyticsUsers() {
+  noStore();
+  const supabase = await createClient();
+  const profile = await getCurrentProfile();
+
+  if (!profile) return [];
+
+  if (profile.role === "USER") {
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", profile.id).maybeSingle();
+    if (error) {
+      logQueryError("getTenderAnalyticsUsers current profile", error);
+      return [];
+    }
+    return data ? [data as Profile] : [];
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("is_active", true)
+    .in("role", ["ADMIN", "MANAGER", "USER"])
+    .order("role")
+    .order("full_name");
+  if (error) {
+    logQueryError("getTenderAnalyticsUsers profiles", error);
+    return [];
+  }
+
+  return (data ?? []) as Profile[];
+}
+
 export async function getProfiles() {
   noStore();
   const supabase = await createClient();
@@ -304,7 +335,6 @@ export async function getAssignmentHistory() {
     .select("*, tender:tenders!inner(tender_id,bidder_name,ge,cwe,is_deleted,deleted_at), assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role), assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
     .eq("tender.is_deleted", false)
     .is("tender.deleted_at", null)
-    .order("assigned_date", { ascending: false })
     .limit(100);
 
   if (profile?.role === "USER") query = query.eq("assigned_to", profile.id);
@@ -392,7 +422,7 @@ export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
   if (!profile || profile.role === "USER") return [];
 
   const [{ data: users, error: usersError }, tenders, { data: followUps, error: followUpsError }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("is_active", true).in("role", ["MANAGER", "USER"]).order("full_name"),
+    supabase.from("profiles").select("*").eq("is_active", true).in("role", ["ADMIN", "MANAGER", "USER"]).order("full_name"),
     getAnalyticsTenderRows(),
     supabase.from("follow_ups").select("user_id")
   ]);
@@ -404,6 +434,7 @@ export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
   if (followUpsError) logQueryError("getUserPerformanceRows follow_ups", followUpsError);
 
   const userRows = (users ?? []) as Profile[];
+  const profileById = new Map(userRows.map((user) => [user.id, user]));
   const followUpsByUser = new Map<string, number>();
   (followUps ?? []).forEach((followUp) => {
     followUpsByUser.set(followUp.user_id, (followUpsByUser.get(followUp.user_id) ?? 0) + 1);
@@ -414,7 +445,12 @@ export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
     return {
       userId: user.id,
       userName: formatProfileDisplayName(user),
+      email: user.email,
       role: user.role,
+      managerId: user.manager_id,
+      managerName: user.manager_id ? formatProfileDisplayName(profileById.get(user.manager_id)) : "",
+      isActive: user.is_active,
+      createdAt: user.created_at,
       assignedTenders: assigned.length,
       uploadedTenders: tenders.filter((tender) => tender.uploaded_by === user.id).length,
       followUps: followUpsByUser.get(user.id) ?? 0,
@@ -535,9 +571,9 @@ async function enrichTendersWithAssignments(supabase: Awaited<ReturnType<typeof 
   const tenderIds = tenders.map((tender) => tender.id);
   const { data, error } = await supabase
     .from("lead_assignments")
-    .select("tender_id,assigned_to,assigned_by,assigned_date,assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role),assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
+    .select("tender_id,assigned_to,assigned_by,assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role),assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
     .in("tender_id", tenderIds)
-    .order("assigned_date", { ascending: false });
+    .limit(10000);
 
   if (error) {
     logQueryError("enrichTendersWithAssignments lead_assignments", error);
@@ -557,7 +593,6 @@ async function enrichTendersWithAssignments(supabase: Awaited<ReturnType<typeof 
       ...tender,
       assigned_to: assignment.assigned_to,
       assigned_by: assignment.assigned_by,
-      assigned_date: assignment.assigned_date,
       assigned_profile: firstProfile(assignment.assignee),
       assigned_by_profile: firstProfile(assignment.assigner)
     } as unknown as Tender;

@@ -5,6 +5,7 @@ export type TenderQueryParams = {
   status: string;
   source: string;
   assignment: string;
+  assignedTo: string;
   page: number;
   pageSize: number;
 };
