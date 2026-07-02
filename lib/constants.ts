@@ -29,7 +29,7 @@ export const navItems = [
   { href: "/imports", label: "Imports", icon: FileSpreadsheet, roles: ["ADMIN", "MANAGER", "USER"] },
   { href: "/assignments", label: "Assignments", icon: Workflow, roles: ["ADMIN", "MANAGER"] },
   { href: "/follow-ups", label: "Follow-Ups", icon: BarChart3, roles: ["ADMIN", "MANAGER", "USER"] },
-  { href: "/analytics", label: "Analytics", icon: LineChart, roles: ["ADMIN", "MANAGER"] },
+  { href: "/analytics", label: "Analytics", icon: LineChart, roles: ["ADMIN", "MANAGER", "USER"] },
   { href: "/contractor-intelligence", label: "Contractors", icon: Boxes, roles: ["ADMIN", "MANAGER"] },
   { href: "/product-intelligence", label: "Products", icon: Boxes, roles: ["ADMIN", "MANAGER"] },
   { href: "/deleted-tenders", label: "Deleted Tenders", icon: Trash2, roles: ["ADMIN"] },

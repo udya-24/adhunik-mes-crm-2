@@ -355,6 +355,10 @@ export type DashboardMetrics = {
   showMyOurValue: boolean;
   wonLeads: number;
   lostLeads: number;
+  pendingLeads: number;
+  totalQuotations: number;
+  totalPI: number;
+  totalFollowUps: number;
   quotationSentValue: number;
   negotiationValue: number;
   piPendingValue: number;

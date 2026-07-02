@@ -3,7 +3,7 @@ import { getCurrentProfile, requireRole } from "@/lib/auth";
 import { formatDate, getISTDayBoundsISO } from "@/lib/date-utils";
 import { formatProfileDisplayName } from "@/lib/profile-utils";
 import { createClient } from "@/lib/supabase/server";
-import type { AgeingBucket, AnalyticsBreakdowns, DashboardMetrics, LeadStatusMaster, OperationalSummaryRow, PipelineSummaryRow, Profile, StatusSummaryRow, Tender, UserPerformanceRow } from "@/lib/types";
+import type { AgeingBucket, AnalyticsBreakdowns, DashboardMetrics, LeadStatusMaster, OperationalSummaryRow, PipelineSummaryRow, Profile, Role, StatusSummaryRow, Tender, UserPerformanceRow } from "@/lib/types";
 
 const defaultDashboardMetrics: DashboardMetrics = {
   totalTenders: 0,
@@ -17,6 +17,10 @@ const defaultDashboardMetrics: DashboardMetrics = {
   showMyOurValue: false,
   wonLeads: 0,
   lostLeads: 0,
+  pendingLeads: 0,
+  totalQuotations: 0,
+  totalPI: 0,
+  totalFollowUps: 0,
   quotationSentValue: 0,
   negotiationValue: 0,
   piPendingValue: 0,
@@ -123,12 +127,17 @@ export async function getDeletedTenderRows() {
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   noStore();
   try {
-    const [profile, tenders, operationalSummary, pipelineSummary] = await Promise.all([
+    const supabase = await createClient();
+    const [profile, tenders, operationalSummary, pipelineSummary, quotationCount, piCount, followUpCount] = await Promise.all([
       getCurrentProfile(),
       getAnalyticsTenderRows(),
       getOperationalSummaryRows(),
-      getPipelineSummaryRows()
+      getPipelineSummaryRows(),
+      getTableCount(supabase, "quotations"),
+      getTableCount(supabase, "proforma_invoices"),
+      getTableCount(supabase, "follow_ups")
     ]);
+    const pendingLeads = tenders.filter((tender) => !["WON", "LOST"].includes(tender.lead_status)).length;
     return {
       totalTenders: operationalCount(operationalSummary, "ASSIGNED") + operationalCount(operationalSummary, "OPEN_POOL"),
       totalTenderValue: tenders.reduce((sum, tender) => sum + Number(tender.awarded_value ?? 0), 0),
@@ -141,6 +150,10 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
       showMyOurValue: profile?.role === "USER",
       wonLeads: pipelineCount(pipelineSummary, "WON"),
       lostLeads: pipelineCount(pipelineSummary, "LOST"),
+      pendingLeads,
+      totalQuotations: quotationCount,
+      totalPI: piCount,
+      totalFollowUps: followUpCount,
       quotationSentValue: sumOurValue(tenders.filter((tender) => tender.lead_status === "QUOTATION_SENT")),
       negotiationValue: sumOurValue(tenders.filter((tender) => tender.lead_status === "NEGOTIATION")),
       piPendingValue: sumOurValue(tenders.filter((tender) => leadStageName(tender) === "PI Waiting Approval")),
@@ -421,8 +434,9 @@ export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
   const profile = await getCurrentProfile();
   if (!profile || profile.role === "USER") return [];
 
+  const visibleRoles: Role[] = profile.role === "ADMIN" ? ["ADMIN", "MANAGER", "USER"] : ["MANAGER", "USER"];
   const [{ data: users, error: usersError }, tenders, { data: followUps, error: followUpsError }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("is_active", true).in("role", ["ADMIN", "MANAGER", "USER"]).order("full_name"),
+    supabase.from("profiles").select("*").eq("is_active", true).in("role", visibleRoles).order("full_name"),
     getAnalyticsTenderRows(),
     supabase.from("follow_ups").select("user_id")
   ]);
@@ -476,6 +490,15 @@ function operationalCount(rows: OperationalSummaryRow[], status: OperationalSumm
 
 function pipelineCount(rows: PipelineSummaryRow[], stage: Tender["lead_status"]) {
   return rows.find((row) => row.stage === stage)?.count ?? 0;
+}
+
+async function getTableCount(supabase: Awaited<ReturnType<typeof createClient>>, table: "quotations" | "proforma_invoices" | "follow_ups") {
+  const { count, error } = await supabase.from(table).select("*", { count: "exact", head: true });
+  if (error) {
+    logQueryError(`getTableCount ${table}`, error);
+    return 0;
+  }
+  return count ?? 0;
 }
 
 function leadStageName(tender: Tender) {

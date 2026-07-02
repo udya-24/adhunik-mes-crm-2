@@ -32,6 +32,7 @@ type RecentActivityRow = {
 type UserAnalytics = {
   profile: Profile;
   manager: Pick<Profile, "full_name" | "email" | "role"> | null;
+  myKpis: AnalyticsMetric[];
   headlineKpis: AnalyticsMetric[];
   tenderStats: AnalyticsMetric[];
   salesStats: AnalyticsMetric[];
@@ -142,68 +143,134 @@ export function UserAnalyticsDrawer({
             {!canView && <EmptyDrawerState>You can only view your own analytics.</EmptyDrawerState>}
             {canView && isLoading && <LoadingSkeleton rows={6} />}
             {canView && error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error instanceof Error ? error.message : "Analytics could not be loaded."}</div>}
-            {canView && analytics && (
-              <>
-                <Section title="Profile">
-                  <InfoGrid
-                    rows={[
-                      ["Name", formatProfileDisplayName(analytics.profile)],
-                      ["Role", analytics.profile.role],
-                      ["Email", analytics.profile.email],
-                      ["Manager", analytics.manager ? formatProfileDisplayName(analytics.manager) : analytics.profile.role === "USER" ? "Not assigned" : "-"],
-                      ["Account Status", analytics.profile.is_active ? "Active" : "Inactive"],
-                      ["Joined Date", formatDate(analytics.profile.created_at)]
-                    ]}
-                  />
-                </Section>
-
-                <Section title="Performance Overview">
-                  <MetricGrid metrics={analytics.headlineKpis} columns="sm:grid-cols-3" />
-                </Section>
-
-                <Section title="Tender Analytics">
-                  <MetricGrid metrics={analytics.tenderStats} />
-                </Section>
-
-                <Section title="Business Analytics">
-                  <MetricGrid metrics={analytics.salesStats} />
-                </Section>
-
-                <Section title="Lead Pipeline">
-                  <DistributionList rows={analytics.pipeline} />
-                </Section>
-
-                <Section title="Quotation Analytics">
-                  <MetricGrid metrics={analytics.quotationStats} />
-                </Section>
-
-                <Section title="PI Analytics">
-                  <MetricGrid metrics={analytics.piStats} />
-                </Section>
-
-                <Section title="Follow-up Analytics">
-                  <MetricGrid metrics={analytics.followUpStats} />
-                </Section>
-
-                <Section title="Recent Activity">
-                  <RecentActivityList rows={analytics.recentActivity} />
-                </Section>
-
-                <Section title="Rankings">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <MiniRanking title="Top Categories" rows={analytics.categories.handled} />
-                    <MiniRanking title="Top GE" rows={analytics.categories.ge} />
-                    <MiniRanking title="Top CWE" rows={analytics.categories.cwe} />
-                    <MiniRanking title="Top Organisations" rows={analytics.categories.organisations} />
-                    <MiniRanking title="Top Contractors" rows={analytics.categories.contractors} />
-                  </div>
-                </Section>
-              </>
-            )}
+            {canView && analytics && <UserAnalyticsSections analytics={analytics} />}
           </div>
         )}
       </aside>
     </div>
+  );
+}
+
+export function UserAnalyticsPanel({
+  user,
+  currentUserId,
+  currentUserRole,
+  title = "My Performance"
+}: {
+  user: AnalyticsUser;
+  currentUserId: string | null;
+  currentUserRole: Role | null;
+  title?: string;
+}) {
+  const { data: analytics = emptyUserAnalytics, isLoading, error } = useUserAnalytics(user, currentUserId, currentUserRole, true);
+  const canView = currentUserRole === "ADMIN" || currentUserRole === "MANAGER" || user.id === currentUserId;
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">Analytics</p>
+        <h2 className="mt-1 text-xl font-bold text-navy-900 sm:text-2xl">{title}</h2>
+      </div>
+      {!canView && <EmptyDrawerState>You can only view your own analytics.</EmptyDrawerState>}
+      {canView && isLoading && <LoadingSkeleton rows={6} />}
+      {canView && error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error instanceof Error ? error.message : "Analytics could not be loaded."}</div>}
+      {canView && analytics && <MyPerformanceSections analytics={analytics} />}
+    </div>
+  );
+}
+
+function UserAnalyticsSections({ analytics }: { analytics: UserAnalytics }) {
+  return (
+    <>
+      <Section title="Profile">
+        <InfoGrid
+          rows={[
+            ["Name", formatProfileDisplayName(analytics.profile)],
+            ["Role", analytics.profile.role],
+            ["Email", analytics.profile.email],
+            ["Manager", analytics.manager ? formatProfileDisplayName(analytics.manager) : analytics.profile.role === "USER" ? "Not assigned" : "-"],
+            ["Account Status", analytics.profile.is_active ? "Active" : "Inactive"],
+            ["Joined Date", formatDate(analytics.profile.created_at)]
+          ]}
+        />
+      </Section>
+
+      <Section title="Performance Overview">
+        <MetricGrid metrics={analytics.headlineKpis} columns="sm:grid-cols-3" />
+      </Section>
+
+      <Section title="Tender Analytics">
+        <MetricGrid metrics={analytics.tenderStats} />
+      </Section>
+
+      <Section title="Business Analytics">
+        <MetricGrid metrics={analytics.salesStats} />
+      </Section>
+
+      <Section title="Lead Pipeline">
+        <DistributionList rows={analytics.pipeline} />
+      </Section>
+
+      <Section title="Quotation Analytics">
+        <MetricGrid metrics={analytics.quotationStats} />
+      </Section>
+
+      <Section title="PI Analytics">
+        <MetricGrid metrics={analytics.piStats} />
+      </Section>
+
+      <Section title="Follow-up Analytics">
+        <MetricGrid metrics={analytics.followUpStats} />
+      </Section>
+
+      <Section title="Recent Activity">
+        <RecentActivityList rows={analytics.recentActivity} />
+      </Section>
+
+      <Section title="Rankings">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MiniRanking title="Top Categories" rows={analytics.categories.handled} />
+          <MiniRanking title="Top GE" rows={analytics.categories.ge} />
+          <MiniRanking title="Top CWE" rows={analytics.categories.cwe} />
+          <MiniRanking title="Top Organisations" rows={analytics.categories.organisations} />
+          <MiniRanking title="Top Contractors" rows={analytics.categories.contractors} />
+        </div>
+      </Section>
+    </>
+  );
+}
+
+function MyPerformanceSections({ analytics }: { analytics: UserAnalytics }) {
+  return (
+    <>
+      <Section title="My KPI Cards">
+        <MetricGrid metrics={analytics.myKpis} columns="sm:grid-cols-2 xl:grid-cols-4" />
+      </Section>
+
+      <Section title="Pipeline">
+        <DistributionList rows={analytics.pipeline} />
+      </Section>
+
+      <Section title="My Top Categories">
+        <MiniRanking title="Top Categories" rows={analytics.categories.handled} />
+      </Section>
+
+      <Section title="My Top GE">
+        <MiniRanking title="Top GE" rows={analytics.categories.ge} />
+      </Section>
+
+      <Section title="My Top Organisations">
+        <MiniRanking title="Top Organisations" rows={analytics.categories.organisations} />
+      </Section>
+
+      <Section title="My Top Contractors">
+        <MiniRanking title="Top Contractors" rows={analytics.categories.contractors} />
+      </Section>
+
+      <Section title="Recent Activities">
+        <RecentActivityList rows={analytics.recentActivity} />
+      </Section>
+    </>
   );
 }
 
@@ -220,10 +287,10 @@ function useUserAnalytics(user: AnalyticsUser | null, currentUserId: string | nu
         supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
         supabase
           .from("tenders")
-          .select("id,tender_id,organisation_chain,ge,cwe,bidder_name,make,awarded_value,our_value,lead_status,contract_date,created_at,updated_at")
+          .select("id,tender_id,organisation_chain,ge,cwe,bidder_name,make,awarded_value,our_value,lead_status,contract_date,created_at,updated_at,assigned_to,uploaded_by")
           .eq("is_deleted", false)
           .is("deleted_at", null)
-          .eq("assigned_to", user.id)
+          .or(`assigned_to.eq.${user.id},uploaded_by.eq.${user.id}`)
           .limit(5000),
         supabase.from("follow_ups").select("id,tender_id,user_id,follow_up_date,remarks,status,created_at").eq("user_id", user.id).limit(5000),
         supabase.from("lead_activities").select("id,tender_id,user_id,activity_type,created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5000),
@@ -239,7 +306,7 @@ function useUserAnalytics(user: AnalyticsUser | null, currentUserId: string | nu
       if (piResult.error) console.error("[UserAnalytics] PI lookup error", piResult.error.message, piResult.error);
 
       const profile = (profileResult.data ?? user) as Profile;
-      const managerResult = profile.manager_id
+      const managerResult = currentUserRole !== "USER" && profile.manager_id
         ? await supabase.from("profiles").select("full_name,email,role").eq("id", profile.manager_id).maybeSingle()
         : { data: null, error: null };
       if (managerResult.error) console.error("[UserAnalytics] manager lookup error", managerResult.error.message, managerResult.error);
@@ -247,7 +314,7 @@ function useUserAnalytics(user: AnalyticsUser | null, currentUserId: string | nu
       return buildUserAnalytics({
         profile,
         manager: (managerResult.data ?? null) as Pick<Profile, "full_name" | "email" | "role"> | null,
-        tenders: (tendersResult.data ?? []) as Pick<Tender, "id" | "tender_id" | "organisation_chain" | "ge" | "cwe" | "bidder_name" | "make" | "awarded_value" | "our_value" | "lead_status" | "contract_date" | "created_at" | "updated_at">[],
+        tenders: (tendersResult.data ?? []) as Pick<Tender, "id" | "tender_id" | "organisation_chain" | "ge" | "cwe" | "bidder_name" | "make" | "awarded_value" | "our_value" | "lead_status" | "contract_date" | "created_at" | "updated_at" | "assigned_to" | "uploaded_by">[],
         followUps: followUpsResult.data ?? [],
         activities: activitiesResult.data ?? [],
         quotations: quotationResult.data ?? [],
@@ -268,26 +335,28 @@ function buildUserAnalytics({
 }: {
   profile: Profile;
   manager: Pick<Profile, "full_name" | "email" | "role"> | null;
-  tenders: Pick<Tender, "id" | "tender_id" | "organisation_chain" | "ge" | "cwe" | "bidder_name" | "make" | "awarded_value" | "our_value" | "lead_status" | "contract_date" | "created_at" | "updated_at">[];
+  tenders: Pick<Tender, "id" | "tender_id" | "organisation_chain" | "ge" | "cwe" | "bidder_name" | "make" | "awarded_value" | "our_value" | "lead_status" | "contract_date" | "created_at" | "updated_at" | "assigned_to" | "uploaded_by">[];
   followUps: { tender_id: string; follow_up_date: string; status: string; created_at: string }[];
   activities: { tender_id: string; activity_type: string; created_at: string }[];
   quotations: { quotation_no?: string | null; status?: string | null; created_at?: string | null; quotation_date?: string | null }[];
   proformaInvoices: { pi_no?: string | null; status?: string | null; created_at?: string | null; pi_date?: string | null }[];
 }): UserAnalytics {
   const today = new Date();
-  const won = tenders.filter((tender) => tender.lead_status === "WON");
-  const lost = tenders.filter((tender) => tender.lead_status === "LOST");
-  const active = tenders.filter((tender) => !["WON", "LOST"].includes(tender.lead_status));
-  const pending = tenders.filter((tender) => ["NEW", "ASSIGNED", "CONTACTED", "FOLLOW_UP", "QUOTATION_SENT", "NEGOTIATION"].includes(tender.lead_status));
-  const newLeads = tenders.filter((tender) => tender.lead_status === "NEW" || tender.lead_status === "ASSIGNED");
+  const assignedTenders = tenders.filter((tender) => tender.assigned_to === profile.id);
+  const uploadedTenders = tenders.filter((tender) => tender.uploaded_by === profile.id);
+  const won = assignedTenders.filter((tender) => tender.lead_status === "WON");
+  const lost = assignedTenders.filter((tender) => tender.lead_status === "LOST");
+  const active = assignedTenders.filter((tender) => !["WON", "LOST"].includes(tender.lead_status));
+  const pending = assignedTenders.filter((tender) => ["NEW", "ASSIGNED", "CONTACTED", "FOLLOW_UP", "QUOTATION_SENT", "NEGOTIATION"].includes(tender.lead_status));
+  const newLeads = assignedTenders.filter((tender) => tender.lead_status === "NEW" || tender.lead_status === "ASSIGNED");
   const completedFollowUps = followUps.filter((followUp) => ["COMPLETED", "WON", "LOST"].includes(String(followUp.status).toUpperCase()));
   const pendingFollowUps = followUps.filter((followUp) => !["COMPLETED", "WON", "LOST"].includes(String(followUp.status).toUpperCase()));
   const overdue = followUps.filter((followUp) => new Date(followUp.follow_up_date) < startOfLocalDay(today) && !["WON", "LOST", "COMPLETED"].includes(String(followUp.status).toUpperCase()));
-  const awardedValues = tenders.map((tender) => Number(tender.awarded_value ?? 0)).filter((value) => value > 0);
-  const ourValues = tenders.map((tender) => Number(tender.our_value ?? 0)).filter((value) => value > 0);
+  const awardedValues = assignedTenders.map((tender) => Number(tender.awarded_value ?? 0)).filter((value) => value > 0);
+  const ourValues = assignedTenders.map((tender) => Number(tender.our_value ?? 0)).filter((value) => value > 0);
   const totalAwarded = awardedValues.reduce((sum, value) => sum + value, 0);
   const totalOur = ourValues.reduce((sum, value) => sum + value, 0);
-  const pipeline = buildStageDistribution(tenders);
+  const pipeline = buildStageDistribution(assignedTenders);
   const latestQuotation = latestByDate(quotations, "created_at");
   const latestPi = latestByDate(proformaInvoices, "created_at");
   const recentActivity = buildRecentActivity({ tenders, followUps, activities, quotations, proformaInvoices });
@@ -295,8 +364,22 @@ function buildUserAnalytics({
   return {
     profile,
     manager,
+    myKpis: [
+      { label: "Assigned Tenders", value: assignedTenders.length },
+      { label: "Uploaded Tenders", value: uploadedTenders.length },
+      { label: "Active Tenders", value: active.length },
+      { label: "Won", value: won.length },
+      { label: "Lost", value: lost.length },
+      { label: "Pending", value: pending.length },
+      { label: "Follow-ups Pending", value: pendingFollowUps.length },
+      { label: "Follow-ups Completed", value: completedFollowUps.length },
+      { label: "Total Quotations", value: quotations.length },
+      { label: "Total PI", value: proformaInvoices.length },
+      { label: "Total Awarded Value", value: formatCurrency(totalAwarded) },
+      { label: "Total Our Value", value: formatCurrency(totalOur) }
+    ],
     headlineKpis: [
-      { label: "Conversion Rate", value: formatPercent(tenders.length ? (won.length / tenders.length) * 100 : 0) },
+      { label: "Conversion Rate", value: formatPercent(assignedTenders.length ? (won.length / assignedTenders.length) * 100 : 0) },
       { label: "Won Tenders", value: won.length },
       { label: "Pending Tenders", value: pending.length },
       { label: "Total Our Value", value: formatCurrency(totalOur) },
@@ -304,7 +387,8 @@ function buildUserAnalytics({
       { label: "Total PI", value: proformaInvoices.length }
     ],
     tenderStats: [
-      { label: "Total Assigned Tenders", value: tenders.length },
+      { label: "Total Assigned Tenders", value: assignedTenders.length },
+      { label: "Uploaded Tenders", value: uploadedTenders.length },
       { label: "Active Tenders", value: active.length },
       { label: "Won", value: won.length },
       { label: "Lost", value: lost.length },
@@ -337,18 +421,18 @@ function buildUserAnalytics({
     ],
     pipeline,
     categories: {
-      handled: topDistribution(tenders.map((tender) => tender.make)),
-      ge: topDistribution(tenders.map((tender) => tender.ge)),
-      cwe: topDistribution(tenders.map((tender) => tender.cwe)),
-      contractors: topDistribution(tenders.map((tender) => tender.bidder_name)),
-      organisations: topDistribution(tenders.map((tender) => tender.organisation_chain))
+      handled: topDistribution(assignedTenders.map((tender) => tender.make)),
+      ge: topDistribution(assignedTenders.map((tender) => tender.ge)),
+      cwe: topDistribution(assignedTenders.map((tender) => tender.cwe)),
+      contractors: topDistribution(assignedTenders.map((tender) => tender.bidder_name)),
+      organisations: topDistribution(assignedTenders.map((tender) => tender.organisation_chain))
     },
     recentActivity,
     kpis: [
-      { label: "Conversion Rate", value: formatPercent(tenders.length ? (won.length / tenders.length) * 100 : 0) },
-      { label: "Pending %", value: formatPercent(tenders.length ? (pending.length / tenders.length) * 100 : 0) },
-      { label: "Won %", value: formatPercent(tenders.length ? (won.length / tenders.length) * 100 : 0) },
-      { label: "Lost %", value: formatPercent(tenders.length ? (lost.length / tenders.length) * 100 : 0) },
+      { label: "Conversion Rate", value: formatPercent(assignedTenders.length ? (won.length / assignedTenders.length) * 100 : 0) },
+      { label: "Pending %", value: formatPercent(assignedTenders.length ? (pending.length / assignedTenders.length) * 100 : 0) },
+      { label: "Won %", value: formatPercent(assignedTenders.length ? (won.length / assignedTenders.length) * 100 : 0) },
+      { label: "Lost %", value: formatPercent(assignedTenders.length ? (lost.length / assignedTenders.length) * 100 : 0) },
       { label: "Average Tender Value", value: formatCurrency(average(awardedValues)) },
       { label: "Average Our Value", value: formatCurrency(average(ourValues)) }
     ]

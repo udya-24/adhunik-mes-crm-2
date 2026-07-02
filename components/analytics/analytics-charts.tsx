@@ -1,26 +1,40 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { UserAnalyticsPanel } from "@/components/analytics/user-analytics-drawer";
 import { UserPerformanceTable } from "@/components/analytics/user-performance-table";
 import { AnalyticsOverview } from "@/components/dashboard/analytics-overview";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import type { AnalyticsBreakdowns, DashboardMetrics, Role, UserPerformanceRow } from "@/lib/types";
+import type { AnalyticsBreakdowns, DashboardMetrics, Profile, UserPerformanceRow } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 export function AnalyticsCharts({
   metrics,
   breakdowns,
   userPerformance,
-  currentUserId,
-  currentUserRole
+  currentProfile
 }: {
   metrics: DashboardMetrics;
   breakdowns: AnalyticsBreakdowns;
   userPerformance: UserPerformanceRow[];
-  currentUserId: string | null;
-  currentUserRole: Role | null;
+  currentProfile: Profile | null;
 }) {
+  const currentUserId = currentProfile?.id ?? null;
+  const currentUserRole = currentProfile?.role ?? null;
+  const isUser = currentUserRole === "USER";
+  const pageCopy = currentUserRole === "MANAGER"
+    ? {
+        eyebrow: "Team Analytics",
+        title: "Team Performance",
+        description: "Manager-level tender, value, pipeline, and team performance analytics."
+      }
+    : {
+        eyebrow: "Organization Analytics",
+        title: "Tender Intelligence",
+        description: "Company KPIs, user performance, pipeline, GE, CWE, contractor, and organisation analytics."
+      };
+
   const chartGroups = [
     ["Our Value by User", breakdowns.ourValueByUser, "ourValue"],
     ["Our Value by GE", breakdowns.ourValueByGE, "ourValue"],
@@ -38,9 +52,18 @@ export function AnalyticsCharts({
     ["User Analysis", breakdowns.user, "count"]
   ] as const;
 
+  if (isUser && currentProfile) {
+    return (
+      <div className="space-y-6">
+        <PageHeader eyebrow="My Performance" title="My Analytics" description="Your assigned tenders, uploaded tenders, values, pipeline, documents, follow-ups, and recent activity." />
+        <UserAnalyticsPanel user={currentProfile} currentUserId={currentUserId} currentUserRole={currentUserRole} title="My Performance" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Analytics" title="Tender Intelligence" description="GE, CWE, contractor, and user-wise tender analysis with value and conversion context." />
+      <PageHeader eyebrow={pageCopy.eyebrow} title={pageCopy.title} description={pageCopy.description} />
       <AnalyticsOverview metrics={metrics} />
       <UserPerformanceTable rows={userPerformance} currentUserId={currentUserId} currentUserRole={currentUserRole} />
       <div className="grid gap-4 xl:grid-cols-2">

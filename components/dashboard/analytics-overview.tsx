@@ -1,13 +1,16 @@
 import { Card } from "@/components/ui/card";
 import { DashboardMetrics } from "@/lib/types";
 import { compactNumber, formatCurrency } from "@/lib/utils";
-import { ClipboardList, IndianRupee, Target, TrendingDown, Trophy, UserCheck, WalletCards } from "lucide-react";
+import { CalendarClock, ClipboardList, FileText, IndianRupee, ReceiptText, Target, TrendingDown, Trophy, UserCheck, WalletCards } from "lucide-react";
 
 export function AnalyticsOverview({ metrics }: { metrics: DashboardMetrics }) {
   const cards = [
     { label: "Total Tenders", value: metrics.totalTenders, icon: ClipboardList, tone: "bg-navy-50 text-navy-700" },
-    { label: "Tender Value", value: formatCurrency(metrics.totalTenderValue), icon: IndianRupee, tone: "bg-amber-50 text-amber-600" },
+    { label: "Total Awarded Value", value: formatCurrency(metrics.totalTenderValue), icon: IndianRupee, tone: "bg-amber-50 text-amber-600" },
     { label: "Total Our Value", value: formatCurrency(metrics.totalOurValue), icon: WalletCards, tone: "bg-blue-50 text-blue-700" },
+    { label: "Total Quotations", value: metrics.totalQuotations, icon: FileText, tone: "bg-navy-50 text-navy-700" },
+    { label: "Total PI", value: metrics.totalPI, icon: ReceiptText, tone: "bg-blue-50 text-blue-700" },
+    { label: "Total Follow-ups", value: metrics.totalFollowUps, icon: CalendarClock, tone: "bg-emerald-50 text-emerald-700" },
     { label: "Assigned Our Value", value: formatCurrency(metrics.assignedOurValue), icon: WalletCards, tone: "bg-emerald-50 text-emerald-700" },
     { label: "Unassigned Our Value", value: formatCurrency(metrics.unassignedOurValue), icon: WalletCards, tone: "bg-orange-50 text-orange-600" },
     { label: "Quotation Sent Value", value: formatCurrency(metrics.quotationSentValue), icon: WalletCards, tone: "bg-amber-50 text-amber-600" },
@@ -19,7 +22,8 @@ export function AnalyticsOverview({ metrics }: { metrics: DashboardMetrics }) {
     { label: "Assigned", value: metrics.assignedLeads, icon: UserCheck, tone: "bg-emerald-50 text-emerald-700" },
     { label: "Open Pool", value: metrics.unassignedLeads, icon: Target, tone: "bg-orange-50 text-orange-600" },
     { label: "Won", value: metrics.wonLeads, icon: Trophy, tone: "bg-navy-50 text-navy-700" },
-    { label: "Lost", value: metrics.lostLeads, icon: TrendingDown, tone: "bg-red-50 text-red-700" }
+    { label: "Lost", value: metrics.lostLeads, icon: TrendingDown, tone: "bg-red-50 text-red-700" },
+    { label: "Pending", value: metrics.pendingLeads, icon: Target, tone: "bg-orange-50 text-orange-600" }
   ];
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5 2xl:grid-cols-6">
