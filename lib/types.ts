@@ -2,6 +2,31 @@ import type { roles, sourceTypes } from "@/lib/constants";
 
 export type Role = (typeof roles)[number];
 export type SourceType = (typeof sourceTypes)[number];
+export type CommunicationChannel = "EMAIL" | "WHATSAPP" | "SMS" | "NOTIFICATION";
+export type CommunicationStatus = "QUEUED" | "SENDING" | "SENT" | "FAILED" | "CANCELLED";
+
+export type CommunicationAccount = {
+  id: string; provider: string; display_name: string; email_address: string | null;
+  is_default: boolean; is_active: boolean; created_by: string; created_at: string; updated_at: string;
+  last_sync_at?: string | null; daily_limit?: number; signature?: string | null;
+};
+export type CommunicationTemplate = {
+  id: string; template_name: string; channel: CommunicationChannel; subject: string | null; body: string;
+  category: string; is_active: boolean; created_by: string; created_at: string;
+  updated_at?: string; creator?: Pick<Profile, "full_name" | "email"> | null;
+};
+export type Communication = {
+  id: string; channel: CommunicationChannel; status: CommunicationStatus; subject: string | null; body: string;
+  from_account: string | null; to_address: string; cc: string[]; bcc: string[]; related_module: string | null;
+  related_record_id: string | null; created_by: string; created_at: string; sent_at: string | null;
+  creator?: Pick<Profile, "full_name" | "email"> | null;
+  template_id?: string | null; scheduled_at?: string | null; sender?: { display_name: string; email_address: string | null } | null;
+};
+export type CommunicationDraft = {
+  id: string; channel: CommunicationChannel; subject: string | null; body: string; created_by: string; updated_at: string;
+  to_address?: string | null; cc?: string[]; bcc?: string[]; attachment_count?: number;
+};
+export type CommunicationAttachment = { id:string; communication_id:string|null; folder:string; file_name:string; file_url:string; file_size:number; file_type:string|null; created_by:string|null; created_at:string; creator?:Pick<Profile,"full_name"|"email">|null };
 export type LeadStatus = "NEW" | "ASSIGNED" | "CONTACTED" | "FOLLOW_UP" | "QUOTATION_SENT" | "NEGOTIATION" | "WON" | "LOST";
 
 export type Profile = {

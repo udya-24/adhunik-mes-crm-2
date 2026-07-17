@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { tenderQueryKeys, type TenderQueryParams } from "@/lib/queries/tenders";
+import { resolveTenderPagination, tenderQueryKeys, type TenderQueryParams } from "@/lib/queries/tenders";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, Tender } from "@/lib/types";
 
@@ -14,6 +14,8 @@ const tenderSelect =
   "*, uploaded_by_profile:profiles!tenders_uploaded_by_fkey(full_name,email,role), assigned_profile:profiles!tenders_assigned_to_fkey(full_name,email,role), assigned_by_profile:profiles!tenders_assigned_by_fkey(full_name,email,role)";
 
 const defaultTenderQueryParams: TenderQueryParams = {
+  viewerId: "",
+  viewerRole: "",
   search: "",
   status: "",
   source: "",
@@ -43,35 +45,47 @@ export function useTenders(params: Partial<TenderQueryParams> = {}) {
       }
 
       const currentProfile = profile as Pick<Profile, "id" | "role" | "full_name" | "email"> | null;
-      let query = supabase
-        .from("tenders")
-        .select(tenderSelect, { count: "exact" })
-        .eq("is_deleted", false)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false });
+      const buildQuery = (head = false) => {
+        let query = supabase
+          .from("tenders")
+          .select(head ? "id" : tenderSelect, { count: "exact", head })
+          .eq("is_deleted", false)
+          .is("deleted_at", null);
 
-      if (currentProfile?.role === "USER") query = query.or(`uploaded_by.eq.${currentProfile.id},assigned_to.eq.${currentProfile.id}`);
-      if (queryParams.status) query = query.eq("lead_status", queryParams.status);
-      if (queryParams.source) query = query.eq("source_type", queryParams.source);
-      if (queryParams.assignment === "assigned") query = query.not("assigned_to", "is", null);
-      if (queryParams.assignment === "unassigned") query = query.is("assigned_to", null);
-      if (queryParams.assignedTo.startsWith("user:")) query = query.eq("assigned_to", queryParams.assignedTo.replace("user:", ""));
-      if (queryParams.assignedTo.startsWith("role:")) {
-        const ids = queryParams.assignedTo.split(":")[2]?.split(",").filter(Boolean) ?? [];
-        query = ids.length ? query.in("assigned_to", ids) : query.is("assigned_to", null).not("assigned_to", "is", null);
+        if (currentProfile?.role === "USER") query = query.or(`uploaded_by.eq.${currentProfile.id},assigned_to.eq.${currentProfile.id}`);
+        if (queryParams.status) query = query.eq("lead_status", queryParams.status);
+        if (queryParams.source) query = query.eq("source_type", queryParams.source);
+        if (queryParams.assignment === "assigned") query = query.not("assigned_to", "is", null);
+        if (queryParams.assignment === "unassigned") query = query.is("assigned_to", null);
+        if (queryParams.assignedTo.startsWith("user:")) query = query.eq("assigned_to", queryParams.assignedTo.replace("user:", ""));
+        if (queryParams.assignedTo.startsWith("role:")) {
+          const ids = queryParams.assignedTo.split(":")[2]?.split(",").filter(Boolean) ?? [];
+          query = ids.length ? query.in("assigned_to", ids) : query.is("assigned_to", null).not("assigned_to", "is", null);
+        }
+        if (queryParams.search.trim()) query = query.or(buildSearchOr(queryParams.search));
+        return query;
+      };
+
+      const { count, error: countError } = await buildQuery(true);
+      if (countError) {
+        logQueryError("useTenders count", countError);
+        return { rows: [], total: 0, page: 1, maxPage: 1 };
       }
-      if (queryParams.search.trim()) query = query.or(buildSearchOr(queryParams.search));
 
-      const from = (Math.max(queryParams.page, 1) - 1) * queryParams.pageSize;
-      const to = from + queryParams.pageSize - 1;
-      const { data, error, count } = await query.range(from, to);
+      const total = count ?? 0;
+      const pagination = resolveTenderPagination(total, queryParams.page, queryParams.pageSize);
+      if (total === 0) return { rows: [], total, page: 1, maxPage: 1 };
+
+      const { data, error } = await buildQuery()
+        .order("created_at", { ascending: false })
+        .range(pagination.from, pagination.to);
 
       if (error) {
         logQueryError("useTenders tenders", error);
-        return { rows: [], total: 0 };
+        return { rows: [], total, page: pagination.page, maxPage: pagination.maxPage };
       }
-      const rows = await enrichLeadContext(supabase, await enrichTendersWithAssignments(supabase, normalizeTenderProfiles((data ?? []) as Tender[])));
-      return { rows, total: count ?? rows.length };
+      const rows = await enrichLeadContext(supabase, normalizeTenderProfiles((data ?? []) as unknown as Tender[]));
+      return { rows, total, page: pagination.page, maxPage: pagination.maxPage };
     }
   });
 }
@@ -132,39 +146,6 @@ function buildSearchOr(search: string) {
 
 type SupabaseBrowserClient = ReturnType<typeof createClient>;
 
-async function enrichTendersWithAssignments(supabase: SupabaseBrowserClient, tenders: Tender[]) {
-  if (!tenders.length) return tenders;
-
-  const { data, error } = await supabase
-    .from("lead_assignments")
-    .select("tender_id,assigned_to,assigned_by,assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role),assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
-    .in("tender_id", tenders.map((tender) => tender.id))
-    .limit(10000);
-
-  if (error) {
-    logQueryError("useTenders lead_assignments enrichment", error);
-    return tenders.map(clearTenderAssignment);
-  }
-
-  const latestByTenderId = new Map<string, NonNullable<typeof data>[number]>();
-  (data ?? []).forEach((assignment) => {
-    if (!latestByTenderId.has(assignment.tender_id)) latestByTenderId.set(assignment.tender_id, assignment);
-  });
-
-  return tenders.map((tender) => {
-    const assignment = latestByTenderId.get(tender.id);
-    if (!assignment) return clearTenderAssignment(tender);
-
-    return {
-      ...tender,
-      assigned_to: assignment.assigned_to,
-      assigned_by: assignment.assigned_by,
-      assigned_profile: firstProfile(assignment.assignee),
-      assigned_by_profile: firstProfile(assignment.assigner)
-    } as unknown as Tender;
-  });
-}
-
 function firstProfile<T>(profile: T | T[] | null | undefined) {
   return Array.isArray(profile) ? profile[0] ?? null : profile ?? null;
 }
@@ -177,12 +158,4 @@ function normalizeTenderProfiles(tenders: Tender[]) {
     assigned_by_profile: firstProfile(tender.assigned_by_profile),
     lead_stage: firstProfile(tender.lead_stage)
   }));
-}
-
-function clearTenderAssignment(tender: Tender): Tender {
-  return {
-    ...tender,
-    assigned_profile: firstProfile(tender.assigned_profile),
-    assigned_by_profile: firstProfile(tender.assigned_by_profile)
-  };
 }

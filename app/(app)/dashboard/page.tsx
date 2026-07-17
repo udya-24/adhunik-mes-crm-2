@@ -5,13 +5,16 @@ import { SalesFunnelWidgets } from "@/components/dashboard/sales-funnel-widgets"
 import { TenderSnapshot } from "@/components/dashboard/tender-snapshot";
 import { PageHeader } from "@/components/ui/page-header";
 import { getAnalyticsBreakdowns, getDashboardMetrics, getFollowUpBuckets, getTenderRows } from "@/lib/data";
+import { getDistributionAnalyticsAction } from "@/app/actions/lead-distribution";
+import { AutoAssignmentAnalytics } from "@/components/dashboard/auto-assignment-analytics";
 
 export default async function DashboardPage() {
-  const [metrics, followUps, tenders, breakdowns] = await Promise.all([
+  const [metrics, followUps, tenders, breakdowns, distribution] = await Promise.all([
     getDashboardMetrics(),
     getFollowUpBuckets(),
     getTenderRows({ limit: 8 }),
-    getAnalyticsBreakdowns()
+    getAnalyticsBreakdowns(),
+    getDistributionAnalyticsAction()
   ]);
 
   return (
@@ -22,6 +25,7 @@ export default async function DashboardPage() {
         description="Tender pipeline, allocation health, contractor activity, and follow-up focus for today."
       />
       <AnalyticsOverview metrics={metrics} />
+      <AutoAssignmentAnalytics analytics={distribution} />
       <SalesFunnelWidgets rows={breakdowns.salesFunnel} />
       <AgeingWidgets buckets={breakdowns.ageing} />
       <FollowUpWidgets buckets={followUps} />

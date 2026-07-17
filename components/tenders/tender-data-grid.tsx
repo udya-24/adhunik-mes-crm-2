@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import { AlertTriangle, CalendarClock, CheckCircle2, Download, Eye, FileText, Loader2, Mail, MessageCircle, Pencil, Phone, Search, Send, Trash2, UploadCloud, UserRound, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addLeadRemarkAction, assignLeadAction, assignLeadToMeAction, bulkTenderAction, deleteTenderAction, getTenderHistoryAction, updateLeadStageAction, updateTenderAction } from "@/app/actions/tenders";
@@ -100,13 +100,22 @@ export function TenderDataGrid({
   const [bulkAction, setBulkAction] = useState<"assign" | "unassign" | "delete" | null>(null);
   const [bulkAssignedTo, setBulkAssignedTo] = useState("");
   const [bulkError, setBulkError] = useState("");
-  const didMountFiltersRef = useRef(false);
-  const { data: tenderPage = { rows: [], total: 0 }, error, isLoading, isFetching } = useTenders({ search, status, source, assignment, assignedTo, page, pageSize });
+  const { data: tenderPage = { rows: [], total: 0, page: 1, maxPage: 1 }, error, isLoading, isFetching } = useTenders({
+    viewerId: currentUserId ?? "",
+    viewerRole: currentUserRole ?? "",
+    search,
+    status,
+    source,
+    assignment,
+    assignedTo,
+    page,
+    pageSize
+  });
   const tenders = tenderPage.rows;
   const totalTenders = tenderPage.total;
-  const totalPages = Math.max(1, Math.ceil(totalTenders / pageSize));
-  const showingFrom = totalTenders ? (page - 1) * pageSize + 1 : 0;
-  const showingTo = Math.min(page * pageSize, totalTenders);
+  const totalPages = tenderPage.maxPage;
+  const showingFrom = totalTenders ? (tenderPage.page - 1) * pageSize + 1 : 0;
+  const showingTo = Math.min(tenderPage.page * pageSize, totalTenders);
   const tableColumnCount = 14;
   const tableHeaders = [
     { label: "", className: "w-10 px-2 py-2" },
@@ -147,16 +156,12 @@ export function TenderDataGrid({
   }, [pageSize]);
 
   useEffect(() => {
-    if (!didMountFiltersRef.current) {
-      didMountFiltersRef.current = true;
-      return;
-    }
     setPage(1);
-  }, [search, status, source, assignment, assignedTo, pageSize]);
+  }, [currentUserId, currentUserRole, search, status, source, assignment, assignedTo, pageSize]);
 
   useEffect(() => {
-    if (!isFetching && page > totalPages) setPage(totalPages);
-  }, [isFetching, page, totalPages]);
+    if (!isFetching && page !== tenderPage.page) setPage(tenderPage.page);
+  }, [isFetching, page, tenderPage.page]);
 
   useEffect(() => {
     const visibleIds = new Set(visibleTenderIdKey ? visibleTenderIdKey.split("|") : []);
@@ -1362,7 +1367,7 @@ function TenderDetailsDrawer({
                 </Section>
 
                 <Section title="Assignment Information">
-                  <AssignmentInfo tender={tender} details={details} userById={userById} currentUserId={currentUserId} currentUserRole={currentUserRole} onOpenUserAnalytics={onOpenUserAnalytics} />
+                  <AssignmentInfo tender={tender} userById={userById} currentUserId={currentUserId} currentUserRole={currentUserRole} onOpenUserAnalytics={onOpenUserAnalytics} />
                 </Section>
 
                 <Section title="Tender Information">
@@ -1531,23 +1536,20 @@ const emptyTenderDetails: TenderDetails = {
 
 function AssignmentInfo({
   tender,
-  details,
   userById,
   currentUserId,
   currentUserRole,
   onOpenUserAnalytics
 }: {
   tender: Tender;
-  details: TenderDetails;
   userById: Map<string, Profile>;
   currentUserId: string | null;
   currentUserRole: Role | null;
   onOpenUserAnalytics: (userId: string) => void;
 }) {
-  const latestAssignment = details.assignments[0] ?? null;
   const uploadedByProfile = tender.uploaded_by_profile ?? null;
-  const assignedToProfile = latestAssignment?.assignee ?? tender.assigned_profile ?? (tender.assigned_to ? userById.get(tender.assigned_to) : null);
-  const assignedByProfile = latestAssignment?.assigner ?? tender.assigned_by_profile ?? (tender.assigned_by ? userById.get(tender.assigned_by) : null);
+  const assignedToProfile = tender.assigned_profile ?? (tender.assigned_to ? userById.get(tender.assigned_to) : null);
+  const assignedByProfile = tender.assigned_by_profile ?? (tender.assigned_by ? userById.get(tender.assigned_by) : null);
   const assignedRole = assignedToProfile?.role ?? tender.assigned_profile?.role ?? "Unknown User";
   const canOpenAssigned = Boolean(tender.assigned_to && (currentUserRole === "ADMIN" || currentUserRole === "MANAGER" || tender.assigned_to === currentUserId));
 
@@ -1564,7 +1566,7 @@ function AssignmentInfo({
         )}
         {currentUserId && tender.assigned_to === currentUserId && <Badge tone="blue">My Lead</Badge>}
       </InfoValue>
-      <InfoValue label="Assigned By">{tender.assigned_by || latestAssignment ? formatProfileDisplayName(assignedByProfile) : "Unknown User"}</InfoValue>
+      <InfoValue label="Assigned By">{tender.assigned_by ? formatProfileDisplayName(assignedByProfile) : "Unknown User"}</InfoValue>
       <InfoValue label="Role">{tender.assigned_to ? assignedRole : "Unknown User"}</InfoValue>
     </div>
   );

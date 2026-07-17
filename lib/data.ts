@@ -103,7 +103,7 @@ export async function getTenderRows({ limit = 50 }: { limit?: number } = {}) {
     logQueryError("getTenderRows tenders", error);
     return [];
   }
-  return enrichTendersWithAssignments(supabase, normalizeTenderProfiles((data ?? []) as Tender[]));
+  return normalizeTenderProfiles((data ?? []) as Tender[]);
 }
 
 export async function getDeletedTenderRows() {
@@ -475,9 +475,23 @@ export async function getUserPerformanceRows(): Promise<UserPerformanceRow[]> {
 }
 
 async function getAnalyticsTenderRows() {
-  const [profile, tenders] = await Promise.all([getCurrentProfile(), getTenderRows({ limit: 5000 })]);
+  const [profile, supabase] = await Promise.all([getCurrentProfile(), createClient()]);
   if (!profile) return [];
-  return tenders;
+
+  let query = supabase
+    .from("tenders")
+    .select(tenderSelect)
+    .eq("is_deleted", false)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  if (profile.role === "USER") query = query.or(`uploaded_by.eq.${profile.id},assigned_to.eq.${profile.id}`);
+
+  const { data, error } = await query.limit(5000);
+  if (error) {
+    logQueryError("getAnalyticsTenderRows tenders", error);
+    return [];
+  }
+  return normalizeTenderProfiles((data ?? []) as Tender[]);
 }
 
 function sumOurValue(tenders: Tender[]) {
@@ -588,40 +602,6 @@ function assignedTenderUserName(tender: Tender) {
   return formatProfileDisplayName(tender.assigned_profile);
 }
 
-async function enrichTendersWithAssignments(supabase: Awaited<ReturnType<typeof createClient>>, tenders: Tender[]) {
-  if (!tenders.length) return tenders;
-
-  const tenderIds = tenders.map((tender) => tender.id);
-  const { data, error } = await supabase
-    .from("lead_assignments")
-    .select("tender_id,assigned_to,assigned_by,assignee:profiles!lead_assignments_assigned_to_fkey(full_name,email,role),assigner:profiles!lead_assignments_assigned_by_fkey(full_name,email,role)")
-    .in("tender_id", tenderIds)
-    .limit(10000);
-
-  if (error) {
-    logQueryError("enrichTendersWithAssignments lead_assignments", error);
-    return tenders.map(clearTenderAssignment);
-  }
-
-  const latestByTenderId = new Map<string, NonNullable<typeof data>[number]>();
-  (data ?? []).forEach((assignment) => {
-    if (!latestByTenderId.has(assignment.tender_id)) latestByTenderId.set(assignment.tender_id, assignment);
-  });
-
-  return tenders.map((tender) => {
-    const assignment = latestByTenderId.get(tender.id);
-    if (!assignment) return clearTenderAssignment(tender);
-
-    return {
-      ...tender,
-      assigned_to: assignment.assigned_to,
-      assigned_by: assignment.assigned_by,
-      assigned_profile: firstProfile(assignment.assignee),
-      assigned_by_profile: firstProfile(assignment.assigner)
-    } as unknown as Tender;
-  });
-}
-
 function firstProfile<T>(profile: T | T[] | null | undefined) {
   return Array.isArray(profile) ? profile[0] ?? null : profile ?? null;
 }
@@ -634,14 +614,6 @@ function normalizeTenderProfiles(tenders: Tender[]) {
     assigned_by_profile: firstProfile(tender.assigned_by_profile),
     lead_stage: firstProfile(tender.lead_stage)
   }));
-}
-
-function clearTenderAssignment(tender: Tender): Tender {
-  return {
-    ...tender,
-    assigned_profile: firstProfile(tender.assigned_profile),
-    assigned_by_profile: firstProfile(tender.assigned_by_profile)
-  };
 }
 
 export async function getContractorIntelligence() {
