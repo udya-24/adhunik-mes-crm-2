@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireProformaInvoiceAccess } from "@/lib/proforma-access";
 import type { ProformaInvoiceInput, ProformaInvoiceStatus } from "@/lib/types";
+import { normalizeMultilineText, shippingAddressSchema } from "@/lib/validations";
 
 const allowedStatuses: ProformaInvoiceStatus[] = ["DRAFT", "SENT", "APPROVED", "CANCELLED"];
 
@@ -31,6 +32,8 @@ function cleanText(value: unknown, required = false) {
 }
 
 function normalizeProformaInvoice(input: ProformaInvoiceInput) {
+  const billingAddress = normalizeMultilineText(input.indentor_address);
+  const shippingAddress = shippingAddressSchema.parse(input.shipping_address) || billingAddress;
   const items = input.items.map((item, index) => {
     const quantity = Math.max(0, Number(item.quantity) || 0);
     const unitPrice = Math.max(0, Number(item.unit_price) || 0);
@@ -74,7 +77,8 @@ function normalizeProformaInvoice(input: ProformaInvoiceInput) {
       dp_code: cleanText(input.dp_code),
       mobile_no: cleanText(input.mobile_no),
       indentor_name: cleanText(input.indentor_name, true) as string,
-      indentor_address: cleanText(input.indentor_address),
+      indentor_address: billingAddress,
+      shipping_address: shippingAddress,
       email: cleanText(input.email),
       gstin: cleanText(input.gstin),
       po_no: cleanText(input.po_no),

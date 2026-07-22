@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Download, FilePenLine, FileText, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { Copy, Download, FilePenLine, FileText, Loader2, Printer } from "lucide-react";
+import { useState, useTransition } from "react";
+import { duplicateQuotationAction } from "@/app/actions/quotations";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/quotations/quotation-list";
@@ -15,6 +16,21 @@ import type { Quotation } from "@/lib/types";
 export function QuotationView({ quotation, canEdit }: { quotation: Quotation; canEdit: boolean }) {
   const [exporting, setExporting] = useState<"pdf" | "docx" | null>(null);
   const [error, setError] = useState("");
+  const [isDuplicating, startDuplicate] = useTransition();
+  const billingAddress = quotation.address || "-";
+  const shippingAddress = quotation.shipping_address || quotation.address || "-";
+  const addressesMatch = billingAddress === shippingAddress;
+
+  function duplicate() {
+    startDuplicate(async () => {
+      try {
+        const result = await duplicateQuotationAction(quotation.id);
+        window.location.href = `/quotations/${result.id}/edit`;
+      } catch (duplicateError) {
+        setError(duplicateError instanceof Error ? duplicateError.message : "Unable to duplicate quotation.");
+      }
+    });
+  }
 
   async function runExport(type: "pdf" | "docx") {
     setExporting(type);
@@ -37,9 +53,13 @@ export function QuotationView({ quotation, canEdit }: { quotation: Quotation; ca
             <FilePenLine size={16} /> Edit
           </Link>
         ) : null}
+        <Button variant="secondary" onClick={duplicate} disabled={isDuplicating}>
+          {isDuplicating ? <Loader2 className="animate-spin" size={16} /> : <Copy size={16} />} Duplicate
+        </Button>
         <Button variant="secondary" onClick={() => runExport("pdf")} disabled={Boolean(exporting)}>
           {exporting === "pdf" ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} Export PDF
         </Button>
+        <Button variant="secondary" onClick={() => window.print()}><Printer size={16} /> Print</Button>
         <Button onClick={() => runExport("docx")} disabled={Boolean(exporting)}>
           {exporting === "docx" ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />} Export DOCX
         </Button>
@@ -53,7 +73,9 @@ export function QuotationView({ quotation, canEdit }: { quotation: Quotation; ca
             <div>
               <p className="text-sm font-bold uppercase tracking-wide text-slate-500">Company Name</p>
               <h2 className="mt-1 text-2xl font-bold text-navy-900">{quotation.customer_name}</h2>
-              <p className="mt-1 max-w-xl whitespace-pre-wrap text-sm text-slate-600">{quotation.address || "-"}</p>
+              <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">{addressesMatch ? "Billing & Shipping Address" : "Billing Address"}</p>
+              <p className="mt-1 max-w-xl whitespace-pre-wrap text-sm text-slate-600">{billingAddress}</p>
+              {!addressesMatch ? <><p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">Shipping Address</p><p className="mt-1 max-w-xl whitespace-pre-wrap text-sm text-slate-600">{shippingAddress}</p></> : null}
             </div>
             <div className="text-right">
               <h1 className="text-3xl font-bold text-navy-900">QUOTATION</h1>

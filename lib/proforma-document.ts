@@ -46,6 +46,7 @@ export function piSubtotal(invoice: ProformaInvoice) {
 }
 
 export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
+  const addressRows = piAddressRows(invoice);
   const headerImageData = await loadImage(piCompanyHeaderUrl);
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -91,7 +92,7 @@ export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
       ["Mobile No.", invoice.mobile_no || "-", "E-mail", invoice.email || "-"],
       ["PO No.", invoice.po_no || "-", "PO Date", invoice.po_date ? formatDate(invoice.po_date) : "-"],
       ["Project", invoice.project || "-", "", ""],
-      ["Indentor Address", invoice.indentor_address || "-", "", ""]
+      ...addressRows
     ],
     didDrawPage: ({ pageNumber }) => {
       if (pageNumber > 1) drawChrome();
@@ -192,9 +193,17 @@ function detailsTable(invoice: ProformaInvoice) {
     ["Mobile No.", invoice.mobile_no || "-", "E-mail", invoice.email || "-"],
     ["PO No.", invoice.po_no || "-", "PO Date", invoice.po_date ? formatDate(invoice.po_date) : "-"],
     ["Project", invoice.project || "-", "", ""],
-    ["Indentor Address", invoice.indentor_address || "-", "", ""]
+    ...piAddressRows(invoice)
   ];
   return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: rows.map((row) => new TableRow({ children: row.map((value, index) => wordCell(value, { bold: index === 0 || index === 2, shade: index === 0 || index === 2 ? "EEF4FF" : undefined })) })) });
+}
+
+function piAddressRows(invoice: ProformaInvoice) {
+  const billing = invoice.indentor_address || "-";
+  const shipping = invoice.shipping_address || invoice.indentor_address || "-";
+  return billing === shipping
+    ? [["Billing & Shipping Address", billing, "", ""]]
+    : [["Billing Address", billing, "", ""], ["Shipping Address", shipping, "", ""]];
 }
 
 function itemsTable(invoice: ProformaInvoice) {

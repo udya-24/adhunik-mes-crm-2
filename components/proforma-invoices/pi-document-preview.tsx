@@ -7,6 +7,9 @@ import type { ProformaInvoice } from "@/lib/types";
 import { PiStatusBadge } from "@/components/proforma-invoices/pi-status-badge";
 
 export function PiDocumentPreview({ invoice, showStatus = true }: { invoice: ProformaInvoice; showStatus?: boolean }) {
+  const billingAddress = invoice.indentor_address || "-";
+  const shippingAddress = invoice.shipping_address || invoice.indentor_address || "-";
+  const addressesMatch = billingAddress === shippingAddress;
   return (
     <div className="overflow-hidden bg-white">
       <img src={piCompanyHeaderUrl} alt="Adhunik Switchgears Pvt. Ltd. PI header" className="h-auto w-full object-contain" />
@@ -15,7 +18,9 @@ export function PiDocumentPreview({ invoice, showStatus = true }: { invoice: Pro
           <div>
             <p className="text-sm font-bold uppercase tracking-wide text-slate-500">Company Name</p>
             <h2 className="mt-1 text-2xl font-bold text-navy-900">{invoice.indentor_name || "Company Name"}</h2>
-            <p className="mt-1 max-w-xl whitespace-pre-wrap text-sm text-slate-600">{invoice.indentor_address || "-"}</p>
+            <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">{addressesMatch ? "Billing & Shipping Address" : "Billing Address"}</p>
+            <p className="mt-1 max-w-xl whitespace-pre-wrap text-sm text-slate-600">{billingAddress}</p>
+            {!addressesMatch ? <><p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">Shipping Address</p><p className="mt-1 max-w-xl whitespace-pre-wrap text-sm text-slate-600">{shippingAddress}</p></> : null}
           </div>
           <div className="text-right">
             <h1 className="text-3xl font-bold text-navy-900">PROFORMA INVOICE</h1>

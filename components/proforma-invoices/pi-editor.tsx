@@ -32,6 +32,7 @@ export function PiEditor({ invoice, profile }: { invoice?: ProformaInvoice; prof
     mobile_no: invoice?.mobile_no ?? "",
     indentor_name: invoice?.indentor_name ?? "",
     indentor_address: invoice?.indentor_address ?? "",
+    shipping_address: invoice?.shipping_address ?? invoice?.indentor_address ?? "",
     email: invoice?.email ?? "",
     gstin: invoice?.gstin ?? "",
     po_no: invoice?.po_no ?? "",
@@ -74,6 +75,7 @@ export function PiEditor({ invoice, profile }: { invoice?: ProformaInvoice; prof
         dp_code: form.dp_code || null,
         mobile_no: form.mobile_no || null,
         indentor_address: form.indentor_address || null,
+        shipping_address: form.shipping_address || form.indentor_address || null,
         email: form.email || null,
         gstin: form.gstin || null,
         po_no: form.po_no || null,
@@ -132,7 +134,10 @@ export function PiEditor({ invoice, profile }: { invoice?: ProformaInvoice; prof
             <Field label="PO Date"><input type="date" className={inputClass} value={form.po_date} onChange={(event) => setValue("po_date", event.target.value)} /></Field>
             <Field label="Project"><input className={inputClass} value={form.project} onChange={(event) => setValue("project", event.target.value)} /></Field>
             <div className="md:col-span-2 xl:col-span-3">
-              <Field label="Indentor Address"><textarea className={`${inputClass} min-h-24 w-full py-2`} value={form.indentor_address} onChange={(event) => setValue("indentor_address", event.target.value)} /></Field>
+              <Field label="Billing Address"><textarea maxLength={2000} className={`${inputClass} min-h-24 w-full py-2`} value={form.indentor_address} onChange={(event) => setValue("indentor_address", event.target.value)} /></Field>
+            </div>
+            <div className="md:col-span-2 xl:col-span-3">
+              <Field label="Shipping Address"><textarea maxLength={2000} className={`${inputClass} min-h-24 w-full py-2`} value={form.shipping_address} onChange={(event) => setValue("shipping_address", event.target.value)} /></Field>
             </div>
           </div>
         </Card>

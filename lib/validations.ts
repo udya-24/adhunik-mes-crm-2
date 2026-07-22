@@ -23,6 +23,22 @@ const nullableNumber = z.preprocess(
     .nullable()
 );
 
+export function normalizeMultilineText(value: unknown) {
+  const normalized = String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return normalized || null;
+}
+
+export const shippingAddressSchema = z.preprocess(
+  normalizeMultilineText,
+  z.string().max(2000, "Shipping Address must be 2000 characters or fewer.").nullable()
+);
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6)

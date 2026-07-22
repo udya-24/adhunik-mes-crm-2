@@ -20,6 +20,7 @@ export function formatQuotationCurrency(value: number) {
 }
 
 export async function exportQuotationPdf(quotation: Quotation) {
+  const addressRows = quotationAddressRows(quotation);
   const headerImageData = await loadHeaderImage(quotation.header_image_url || defaultCompanyHeaderUrl);
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -69,7 +70,7 @@ export async function exportQuotationPdf(quotation: Quotation) {
       ["Company Name", quotation.customer_name, "Contract", quotation.contract_name || "-"],
       ["Contact Person", quotation.contact_person || "-", "Mobile", quotation.mobile_number || "-"],
       ["Email", quotation.email || "-", "GST Number", quotation.gst_number || "-"],
-      ["Address", quotation.address || "-", "", ""]
+      ...addressRows
     ],
     didDrawPage: ({ pageNumber }) => {
       if (pageNumber > 1) drawPageChrome();
@@ -207,7 +208,7 @@ function detailsTable(quotation: Quotation) {
     ["Company Name", quotation.customer_name, "Contract", quotation.contract_name || "-"],
     ["Contact Person", quotation.contact_person || "-", "Mobile", quotation.mobile_number || "-"],
     ["Email", quotation.email || "-", "GST Number", quotation.gst_number || "-"],
-    ["Address", quotation.address || "-", "", ""]
+    ...quotationAddressRows(quotation)
   ];
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -215,6 +216,14 @@ function detailsTable(quotation: Quotation) {
       children: row.map((value, index) => wordCell(value, { bold: index === 0 || index === 2, shade: index === 0 || index === 2 ? "EEF4FF" : undefined }))
     }))
   });
+}
+
+function quotationAddressRows(quotation: Quotation) {
+  const billing = quotation.address || "-";
+  const shipping = quotation.shipping_address || quotation.address || "-";
+  return billing === shipping
+    ? [["Billing & Shipping Address", billing, "", ""]]
+    : [["Billing Address", billing, "", ""], ["Shipping Address", shipping, "", ""]];
 }
 
 function itemsTable(quotation: Quotation) {

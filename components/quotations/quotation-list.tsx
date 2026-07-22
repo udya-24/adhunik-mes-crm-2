@@ -20,7 +20,7 @@ export function QuotationList({ quotations, role, currentUserId }: { quotations:
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return needle
-      ? quotations.filter((quotation) => [quotation.quotation_no, quotation.customer_name, quotation.contract_name, quotation.status].some((value) => String(value ?? "").toLowerCase().includes(needle)))
+      ? quotations.filter((quotation) => [quotation.quotation_no, quotation.customer_name, quotation.contract_name, quotation.address, quotation.shipping_address, quotation.status].some((value) => String(value ?? "").toLowerCase().includes(needle)))
       : quotations;
   }, [quotations, search]);
 

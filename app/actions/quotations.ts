@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireQuotationAccess } from "@/lib/quotation-access";
 import type { QuotationInput, QuotationStatus } from "@/lib/types";
+import { normalizeMultilineText, shippingAddressSchema } from "@/lib/validations";
 
 const allowedStatuses: QuotationStatus[] = ["DRAFT", "SENT", "ACCEPTED", "REJECTED"];
 
@@ -31,6 +32,8 @@ function cleanText(value: unknown, required = false) {
 }
 
 function normalizeQuotation(input: QuotationInput) {
+  const billingAddress = normalizeMultilineText(input.address);
+  const shippingAddress = shippingAddressSchema.parse(input.shipping_address) || billingAddress;
   const items = input.items.map((item, index) => ({
     line_no: index + 1,
     ims_master_id: item.ims_master_id || null,
@@ -71,7 +74,8 @@ function normalizeQuotation(input: QuotationInput) {
       quotation_date: cleanText(input.quotation_date, true) as string,
       contract_name: cleanText(input.contract_name),
       customer_name: cleanText(input.customer_name, true) as string,
-      address: cleanText(input.address),
+      address: billingAddress,
+      shipping_address: shippingAddress,
       gst_number: cleanText(input.gst_number),
       contact_person: cleanText(input.contact_person),
       mobile_number: cleanText(input.mobile_number),
@@ -255,6 +259,52 @@ export async function deleteQuotationAction(id: string) {
   revalidatePath("/quotations");
 }
 
+export async function duplicateQuotationAction(id: string) {
+  const profile = await requireQuotationAccess();
+  const supabase = createAdminClient();
+  const { data: source, error } = await supabase
+    .from("quotations")
+    .select("*, items:quotation_items(*), terms:quotation_terms(*)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!source) throw new Error("Quotation not found.");
+
+  const sourceRow = source as Record<string, unknown> & { items?: Record<string, unknown>[]; terms?: Record<string, unknown>[] };
+  const quotationNo = await nextQuotationCopyNumber(supabase, `${String(sourceRow.quotation_no ?? "QUOTATION")}-COPY`);
+  const { items = [], terms = [], id: _id, created_at: _createdAt, updated_at: _updatedAt, creator: _creator, ...parent } = sourceRow;
+  const { data: quotation, error: insertError } = await supabase
+    .from("quotations")
+    .insert({ ...parent, quotation_no: quotationNo, status: "DRAFT", created_by: profile.id, updated_by: profile.id })
+    .select("id")
+    .single();
+  if (insertError) throw new Error(insertError.message);
+
+  const itemRows = items.map(({ id: _itemId, quotation_id: _oldId, created_at: _createdAt, ...item }) => ({ ...item, quotation_id: quotation.id }));
+  const termRows = terms.map(({ id: _termId, quotation_id: _oldId, created_at: _createdAt, ...term }) => ({ ...term, quotation_id: quotation.id }));
+  if (itemRows.length) {
+    const result = await supabase.from("quotation_items").insert(itemRows);
+    if (result.error) throw new Error(result.error.message);
+  }
+  if (termRows.length) {
+    const result = await supabase.from("quotation_terms").insert(termRows);
+    if (result.error) throw new Error(result.error.message);
+  }
+  revalidatePath("/quotations");
+  return { id: quotation.id };
+}
+
+async function nextQuotationCopyNumber(supabase: ReturnType<typeof createAdminClient>, baseNo: string) {
+  let candidate = baseNo;
+  for (let index = 2; index < 100; index += 1) {
+    const { data, error } = await supabase.from("quotations").select("id").eq("quotation_no", candidate).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return candidate;
+    candidate = `${baseNo}-${index}`;
+  }
+  return `${baseNo}-${Date.now()}`;
+}
+
 async function deleteStagedRows(
   supabase: ReturnType<typeof createAdminClient>,
   items: { id: string }[],
@@ -286,6 +336,7 @@ async function rollbackQuotationUpdate(
     contract_name: existing.contract_name,
     customer_name: existing.customer_name,
     address: existing.address,
+    shipping_address: existing.shipping_address,
     gst_number: existing.gst_number,
     contact_person: existing.contact_person,
     mobile_number: existing.mobile_number,

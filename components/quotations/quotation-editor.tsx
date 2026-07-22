@@ -30,6 +30,7 @@ export function QuotationEditor({ quotation }: { quotation?: Quotation }) {
     contract_name: quotation?.contract_name ?? "",
     customer_name: quotation?.customer_name ?? "",
     address: quotation?.address ?? "",
+    shipping_address: quotation?.shipping_address ?? quotation?.address ?? "",
     gst_number: quotation?.gst_number ?? "",
     contact_person: quotation?.contact_person ?? "",
     mobile_number: quotation?.mobile_number ?? "",
@@ -149,7 +150,10 @@ export function QuotationEditor({ quotation }: { quotation?: Quotation }) {
             </datalist>
           </Field>
           <div className="md:col-span-2 xl:col-span-3">
-            <Field label="Address"><textarea className={`${inputClass} min-h-24 w-full py-2`} value={form.address} onChange={(event) => setValue("address", event.target.value)} /></Field>
+            <Field label="Billing Address"><textarea maxLength={2000} className={`${inputClass} min-h-24 w-full py-2`} value={form.address} onChange={(event) => setValue("address", event.target.value)} /></Field>
+          </div>
+          <div className="md:col-span-2 xl:col-span-3">
+            <Field label="Shipping Address"><textarea maxLength={2000} className={`${inputClass} min-h-24 w-full py-2`} value={form.shipping_address} onChange={(event) => setValue("shipping_address", event.target.value)} /></Field>
           </div>
         </div>
       </Card>

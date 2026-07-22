@@ -75,6 +75,7 @@ export type Quotation = {
   contract_name: string | null;
   customer_name: string;
   address: string | null;
+  shipping_address: string | null;
   gst_number: string | null;
   contact_person: string | null;
   mobile_number: string | null;
@@ -136,6 +137,7 @@ export type ProformaInvoice = {
   mobile_no: string | null;
   indentor_name: string;
   indentor_address: string | null;
+  shipping_address: string | null;
   email: string | null;
   gstin: string | null;
   po_no: string | null;
