@@ -127,7 +127,7 @@ export async function bulkImportTendersAction(rows: unknown[], fileName: string)
   const duplicateIds = new Set((existing ?? []).map((row) => row.tender_id));
   const inserts = parsed.filter((row) => !duplicateIds.has(row.tender_id)).map((row) => ({ ...row, uploaded_by: profile.id, lead_status: "NEW" as const }));
 
-  const { error } = inserts.length ? await supabase.from("tenders").insert(inserts) : { error: null };
+  const { data: importedRows, error } = inserts.length ? await supabase.from("tenders").insert(inserts).select("id,assigned_to") : { data: [], error: null };
   if (error) return { error: error.message };
 
   await supabase.from("upload_history").insert({
@@ -141,7 +141,8 @@ export async function bulkImportTendersAction(rows: unknown[], fileName: string)
 
   revalidatePath("/imports");
   revalidatePath("/tenders");
-  return { ok: true, imported: inserts.length, duplicates: duplicateIds.size };
+  const automaticallyAssigned = (importedRows ?? []).filter((row) => row.assigned_to).length;
+  return { ok: true, imported: inserts.length, automaticallyAssigned, remainingUnassigned: inserts.length - automaticallyAssigned, duplicates: duplicateIds.size };
 }
 
 const editableTenderFields = [

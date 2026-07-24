@@ -1,0 +1,39 @@
+"use client";
+
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowRightLeft, Pencil, Search, Trash2 } from "lucide-react";
+import { createBidderAssignmentAction, deleteBidderAssignmentAction, transferBidderOwnershipAction, updateBidderAssignmentAction, type BidderTransferScope } from "@/app/actions/lead-distribution";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+
+type Person = { id: string; full_name: string | null; email: string; role?: string };
+type Rule = { id: string; bidder_name: string; assigned_user: string; assigned_by: string; assigned_at: string; is_active: boolean; remarks: string | null; assignee: Person | Person[] | null; assigner: Person | Person[] | null };
+
+function person(value: Person | Person[] | null) { return Array.isArray(value) ? value[0] : value; }
+
+export function BidderOwnership({ rows, users }: { rows: Rule[]; users: Person[] }) {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [bidderName, setBidderName] = useState("");
+  const [assignedUser, setAssignedUser] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [editing, setEditing] = useState<Rule | null>(null);
+  const [transferring, setTransferring] = useState<Rule | null>(null);
+  const [scope, setScope] = useState<BidderTransferScope>("FUTURE_ONLY");
+  const [error, setError] = useState("");
+  const [pending, startTransition] = useTransition();
+  const visible = useMemo(() => { const q = query.trim().toLowerCase(); return !q ? rows : rows.filter((r) => r.bidder_name.toLowerCase().includes(q) || `${person(r.assignee)?.full_name || ""} ${person(r.assignee)?.email || ""}`.toLowerCase().includes(q)); }, [query, rows]);
+  function run(task: () => Promise<unknown>, done?: () => void) { setError(""); startTransition(async () => { try { await task(); done?.(); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : "Operation failed"); } }); }
+
+  return <section id="bidder-ownership" className="space-y-4">
+    <Card className="p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-blue-600">Bidder Ownership</p><h2 className="mt-1 text-xl font-bold text-navy-900">Create assignment</h2><p className="text-sm text-slate-500">Choose an existing bidder name or type a new one.</p></div><div className="grid w-full gap-3 md:grid-cols-4 xl:w-auto xl:min-w-[760px]"><input list="bidder-names" className="h-10 rounded-lg border px-3" placeholder="Bidder name" value={bidderName} onChange={(e) => setBidderName(e.target.value)} /><datalist id="bidder-names">{rows.map((r) => <option key={r.id} value={r.bidder_name} />)}</datalist><select className="h-10 rounded-lg border px-3" value={assignedUser} onChange={(e) => setAssignedUser(e.target.value)}><option value="">Select User/Manager</option>{users.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.email} ({u.role})</option>)}</select><input className="h-10 rounded-lg border px-3" placeholder="Remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} /><Button disabled={pending || !bidderName.trim() || !assignedUser} onClick={() => run(() => createBidderAssignmentAction({ bidderName, assignedUser, remarks }), () => { setBidderName(""); setAssignedUser(""); setRemarks(""); })}>Save</Button></div></div></Card>
+    {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+    <Card className="overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-3 border-b p-5"><div><h2 className="font-bold text-navy-900">Bidder Assignment</h2><p className="text-sm text-slate-500">One active owner per normalized bidder name</p></div><label className="flex items-center gap-2 rounded-lg border px-3"><Search size={16} className="text-slate-400" /><input className="h-10 outline-none" placeholder="Search bidder or user" value={query} onChange={(e) => setQuery(e.target.value)} /></label></div><div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="p-4">Bidder Name</th><th>Assigned User</th><th>Assigned By</th><th>Assigned Date</th><th>Status</th><th>Remarks</th><th>Actions</th></tr></thead><tbody>{visible.map((r) => <tr key={r.id} className="border-t"><td className="p-4 font-semibold text-navy-900">{r.bidder_name}</td><td>{person(r.assignee)?.full_name || person(r.assignee)?.email}</td><td>{person(r.assigner)?.full_name || person(r.assigner)?.email}</td><td>{new Date(r.assigned_at).toLocaleString("en-IN")}</td><td><Badge tone={r.is_active ? "green" : "gray"}>{r.is_active ? "Active" : "Inactive"}</Badge></td><td className="max-w-[220px] truncate">{r.remarks || "—"}</td><td><div className="flex gap-1"><button className="rounded p-2 hover:bg-slate-100" title="Edit" onClick={() => setEditing(r)}><Pencil size={16} /></button><button className="rounded p-2 hover:bg-slate-100" title="Transfer" onClick={() => { setTransferring(r); setAssignedUser(r.assigned_user); }}><ArrowRightLeft size={16} /></button>{r.is_active && <button className="rounded p-2 text-red-600 hover:bg-red-50" title="Delete" onClick={() => { if (confirm(`Deactivate bidder ownership for ${r.bidder_name}?`)) run(() => deleteBidderAssignmentAction(r.id)); }}><Trash2 size={16} /></button>}</div></td></tr>)}</tbody></table>{!visible.length && <p className="p-8 text-center text-sm text-slate-500">No bidder assignments found.</p>}</div></Card>
+    {editing && <Modal title="Edit bidder assignment" close={() => setEditing(null)}><input className="h-10 w-full rounded-lg border px-3" value={editing.bidder_name} onChange={(e) => setEditing({ ...editing, bidder_name: e.target.value })} /><textarea className="mt-3 w-full rounded-lg border p-3" value={editing.remarks || ""} onChange={(e) => setEditing({ ...editing, remarks: e.target.value })} /><label className="mt-3 flex gap-2"><input type="checkbox" checked={editing.is_active} onChange={(e) => setEditing({ ...editing, is_active: e.target.checked })} />Active</label><Button className="mt-4" disabled={pending} onClick={() => run(() => updateBidderAssignmentAction({ id: editing.id, bidderName: editing.bidder_name, remarks: editing.remarks || "", isActive: editing.is_active }), () => setEditing(null))}>Save changes</Button></Modal>}
+    {transferring && <Modal title={`Transfer ${transferring.bidder_name}`} close={() => setTransferring(null)}><select className="h-10 w-full rounded-lg border px-3" value={assignedUser} onChange={(e) => setAssignedUser(e.target.value)}>{users.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}</select><select className="mt-3 h-10 w-full rounded-lg border px-3" value={scope} onChange={(e) => setScope(e.target.value as BidderTransferScope)}><option value="FUTURE_ONLY">Only Future Leads</option><option value="FUTURE_AND_OPEN">Future + Existing Open Leads</option><option value="FUTURE_AND_ALL">Future + All Leads</option></select><Button className="mt-4" disabled={pending || !assignedUser} onClick={() => run(() => transferBidderOwnershipAction({ id: transferring.id, assignedUser, scope }), () => setTransferring(null))}>Transfer ownership</Button></Modal>}
+  </section>;
+}
+
+function Modal({ title, close, children }: { title: string; close: () => void; children: React.ReactNode }) { return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4"><Card className="w-full max-w-md p-6"><div className="mb-4 flex justify-between"><h3 className="font-bold text-navy-900">{title}</h3><button onClick={close}>×</button></div>{children}</Card></div>; }

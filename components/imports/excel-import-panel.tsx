@@ -59,7 +59,7 @@ export function ExcelImportPanel({ history }: { history: any[] }) {
 
   async function importRows() {
     const result = await bulkImportTendersAction(rows, fileName);
-    setMessage(result?.error ?? `Imported ${result?.imported ?? 0} rows, skipped ${result?.duplicates ?? 0} duplicates.`);
+    setMessage(result?.error ?? `Imported ${result?.imported ?? 0} · Automatically Assigned ${result?.automaticallyAssigned ?? 0} · Remaining Unassigned ${result?.remainingUnassigned ?? 0} · Skipped ${result?.duplicates ?? 0} duplicates.`);
   }
 
   return (

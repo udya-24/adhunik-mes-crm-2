@@ -11,17 +11,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { BidderOwnership } from "@/components/lead-distribution/bidder-ownership";
 
 type PoolUser = { id: string; full_name: string | null; email: string; role: "USER" | "MANAGER"; current_assigned: number; current_active: number; total_awarded_value: number; follow_up_count: number; last_login: string | null };
 type Batch = { id: string; started_at: string; algorithm: DistributionAlgorithm; selected_users: string[]; total_tenders: number; completed_tenders: number; status: string; completed_at: string | null; assignment_order: DistributionOrder; requested_quantity: number; remaining_quantity: number };
 type Preview = { totalTenders: number; assigning: number; remaining: number; algorithm: DistributionAlgorithm; assignmentOrder: DistributionOrder; warning: string | null; allocations: { userId: string; name: string; currentWorkload: number; assigned: number }[] };
-type Overview = { pool: PoolUser[]; unassigned: number; lastBatch: Batch | null; pending: number };
+type Overview = { pool: PoolUser[]; unassigned: number; lastBatch: Batch | null; pending: number; analytics: { bidderAssigned: number; distributed: number; manuallyAssigned: number; unassigned: number } };
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const algorithmNames = { LEAST_LOADED: "Least Loaded", ROUND_ROBIN: "Round Robin", RANDOM: "Random" } as const;
 const orderNames: Record<DistributionOrder, string> = { OLDEST_FIRST: "Oldest First", NEWEST_FIRST: "Newest First", HIGHEST_VALUE: "Highest Awarded Value First", LOWEST_VALUE: "Lowest Awarded Value First", RANDOM: "Random" };
 
-export function LeadDistributionDashboard({ initialOverview }: { initialOverview: Overview }) {
+export function LeadDistributionDashboard({ initialOverview, initialBidderAssignments }: { initialOverview: Overview; initialBidderAssignments: any[] }) {
   const router = useRouter();
   const [algorithm, setAlgorithm] = useState<DistributionAlgorithm>("LEAST_LOADED");
   const [quantityMode, setQuantityMode] = useState<DistributionQuantityMode>("ALL_UNASSIGNED");
@@ -70,6 +71,10 @@ export function LeadDistributionDashboard({ initialOverview }: { initialOverview
 
   return <div className="space-y-6">
     <PageHeader eyebrow="Assignments" title="Lead Distribution" description="Automatically distribute unassigned tenders across your active team." />
+    <nav className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2 text-sm font-semibold"><a className="rounded-lg px-4 py-2 hover:bg-slate-100" href="#overview">Overview</a><a className="rounded-lg px-4 py-2 hover:bg-slate-100" href="#automatic-distribution">Automatic Distribution</a><a className="rounded-lg px-4 py-2 hover:bg-slate-100" href="#bidder-ownership">Bidder Ownership</a><a className="rounded-lg px-4 py-2 hover:bg-slate-100" href="/assignments">Assignment History</a></nav>
+    <div id="overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Assigned via Bidder Rules" value={initialOverview.analytics.bidderAssigned} /><Metric label="Assigned via Distribution" value={initialOverview.analytics.distributed} /><Metric label="Assigned Manually" value={initialOverview.analytics.manuallyAssigned} /><Metric label="Remaining Unassigned" value={initialOverview.analytics.unassigned} /></div>
+    <BidderOwnership rows={initialBidderAssignments} users={initialOverview.pool} />
+    <div id="automatic-distribution" />
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Metric label="Total Unassigned" value={initialOverview.unassigned} />
       <Metric label="Selected For Assignment" value={selectedForAssignment} />

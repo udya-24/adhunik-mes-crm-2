@@ -198,7 +198,11 @@ begin
   ) then raise exception 'Distribution pool contains an inactive or invalid user'; end if;
 
   select count(*) into v_total from public.tenders t
-  where t.deleted_at is null and t.assigned_to is null;
+  where t.deleted_at is null and t.assigned_to is null
+    and not exists (
+      select 1 from public.bidder_assignments ba
+      where ba.is_active and lower(btrim(ba.bidder_name)) = lower(btrim(t.bidder_name))
+    );
 
   v_assigning := case p_quantity_mode
     when 'SPECIFIC_NUMBER' then least(p_quantity_value, v_total)
@@ -332,6 +336,10 @@ begin
     from public.tenders t
     where t.deleted_at is null
       and t.assigned_to is null
+      and not exists (
+        select 1 from public.bidder_assignments ba
+        where ba.is_active and lower(btrim(ba.bidder_name)) = lower(btrim(t.bidder_name))
+      )
       and not exists (select 1 from public.assignment_batch_items i where i.batch_id = p_batch_id and i.tender_id = t.id)
     order by
       case when v_batch.assignment_order = 'OLDEST_FIRST' then t.created_at end asc,
