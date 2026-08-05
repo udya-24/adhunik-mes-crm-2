@@ -16,7 +16,8 @@ export type DistributionRequest = {
   selectedUsers: string[];
 };
 
-export type BidderTransferScope = "FUTURE_ONLY" | "FUTURE_AND_OPEN" | "FUTURE_AND_ALL";
+export type BidderSynchronizationScope = "FUTURE_ONLY" | "FUTURE_AND_UNASSIGNED" | "FUTURE_AND_ALL";
+export type BidderTransferScope = BidderSynchronizationScope;
 
 function cleanBidderName(value: string) {
   const name = value.trim();
@@ -50,7 +51,7 @@ export async function getBidderOwnershipAction(search = "") {
   return data ?? [];
 }
 
-export async function createBidderAssignmentAction(input: { bidderName: string; assignedUser: string; remarks?: string }) {
+export async function createBidderAssignmentAction(input: { bidderName: string; assignedUser: string; remarks?: string; scope: BidderSynchronizationScope }) {
   const profile = await requireRole(["ADMIN"]);
   const admin = createAdminClient();
   const bidderName = cleanBidderName(input.bidderName);
@@ -60,21 +61,24 @@ export async function createBidderAssignmentAction(input: { bidderName: string; 
   const { data, error } = await admin.from("bidder_assignments").insert({ bidder_name: bidderName, assigned_user: input.assignedUser, assigned_by: profile.id, remarks: input.remarks?.trim() || null }).select("id").single();
   if (error) throw new Error(error.code === "23505" ? "An active assignment already exists for this bidder." : error.message);
   await admin.from("audit_logs").insert({ table_name: "bidder_assignments", record_id: data.id, user_id: profile.id, action: "BIDDER_ASSIGNMENT_CREATED", new_data: { bidder_name: bidderName, assigned_user: input.assignedUser } });
+  const result = await synchronizeBidderRules(input.scope, data.id);
   revalidateDistribution();
-  return { ok: true };
+  return result;
 }
 
-export async function updateBidderAssignmentAction(input: { id: string; bidderName: string; remarks?: string; isActive: boolean }) {
+export async function updateBidderAssignmentAction(input: { id: string; bidderName: string; assignedUser: string; remarks?: string; isActive: boolean; scope: BidderSynchronizationScope }) {
   const profile = await requireRole(["ADMIN"]);
   const admin = createAdminClient();
   const { data: old, error: oldError } = await admin.from("bidder_assignments").select("*").eq("id", input.id).single();
   if (oldError) throw new Error(oldError.message);
-  const updates = { bidder_name: cleanBidderName(input.bidderName), remarks: input.remarks?.trim() || null, is_active: input.isActive };
+  await activeAssignee(admin, input.assignedUser);
+  const updates = { bidder_name: cleanBidderName(input.bidderName), assigned_user: input.assignedUser, assigned_by: profile.id, assigned_at: new Date().toISOString(), remarks: input.remarks?.trim() || null, is_active: input.isActive };
   const { error } = await admin.from("bidder_assignments").update(updates).eq("id", input.id);
   if (error) throw new Error(error.code === "23505" ? "An active assignment already exists for this bidder." : error.message);
   await admin.from("audit_logs").insert({ table_name: "bidder_assignments", record_id: input.id, user_id: profile.id, action: "BIDDER_ASSIGNMENT_UPDATED", old_data: old, new_data: updates });
+  const result = input.isActive ? await synchronizeBidderRules(input.scope, input.id) : emptySynchronizationResult();
   revalidateDistribution();
-  return { ok: true };
+  return result;
 }
 
 export async function deleteBidderAssignmentAction(id: string) {
@@ -96,22 +100,41 @@ export async function transferBidderOwnershipAction(input: { id: string; assigne
   const now = new Date().toISOString();
   const { error: updateError } = await admin.from("bidder_assignments").update({ assigned_user: input.assignedUser, assigned_by: profile.id, assigned_at: now, remarks: input.remarks?.trim() || rule.remarks }).eq("id", input.id);
   if (updateError) throw new Error(updateError.message);
-  if (input.scope !== "FUTURE_ONLY") {
-    let tenderQuery = admin.from("tenders").select("id,assigned_to").ilike("bidder_name", rule.bidder_name).eq("is_deleted", false);
-    if (input.scope === "FUTURE_AND_OPEN") tenderQuery = tenderQuery.not("lead_status", "in", "(WON,LOST)");
-    const { data: tenders, error: tenderError } = await tenderQuery;
-    if (tenderError) throw new Error(tenderError.message);
-    const changed = (tenders ?? []).filter((t) => t.assigned_to !== input.assignedUser);
-    if (changed.length) {
-      const ids = changed.map((t) => t.id);
-      const { error: assignmentError } = await admin.from("tenders").update({ assigned_to: input.assignedUser, assigned_by: profile.id, updated_at: now }).in("id", ids);
-      if (assignmentError) throw new Error(assignmentError.message);
-      await admin.from("lead_assignments").insert(ids.map((tender_id) => ({ tender_id, assigned_to: input.assignedUser, assigned_by: profile.id, assigned_date: now, remarks: `Bidder ownership transfer (${input.scope})` })));
-    }
-  }
+  const result = await synchronizeBidderRules(input.scope, input.id);
   await admin.from("audit_logs").insert({ table_name: "bidder_assignments", record_id: input.id, user_id: profile.id, action: "BIDDER_OWNERSHIP_TRANSFERRED", old_data: { assigned_user: rule.assigned_user }, new_data: { assigned_user: input.assignedUser, scope: input.scope } });
   revalidateDistribution();
-  return { ok: true };
+  return result;
+}
+
+function emptySynchronizationResult() {
+  return { rulesProcessed: 0, matchingTenders: 0, updated: 0, skipped: 0, errors: 0, durationMs: 0 };
+}
+
+async function synchronizeBidderRules(scope: BidderSynchronizationScope, ruleId: string | null) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("synchronize_bidder_assignments", { p_scope: scope, p_rule_id: ruleId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function previewBidderSynchronizationAction(input: { scope: BidderSynchronizationScope; ruleId?: string; bidderName?: string; assignedUser?: string }) {
+  await requireRole(["ADMIN"]);
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("preview_bidder_synchronization", {
+    p_scope: input.scope,
+    p_rule_id: input.ruleId ?? null,
+    p_bidder_name: input.bidderName?.trim() || null,
+    p_assigned_user: input.assignedUser || null
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function synchronizeExistingBiddersAction(scope: BidderSynchronizationScope = "FUTURE_AND_ALL") {
+  await requireRole(["ADMIN"]);
+  const result = await synchronizeBidderRules(scope, null);
+  revalidateDistribution();
+  return result;
 }
 
 function normalizedQuantity(value: number) {
