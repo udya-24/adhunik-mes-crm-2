@@ -55,7 +55,7 @@ export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
   const headerHeight = headerImageData ? 28 : 12;
   const footerTop = 262;
 
-  const drawChrome = () => {
+  const drawFirstPageHeader = () => {
     if (headerImageData) {
       const image = doc.getImageProperties(headerImageData);
       const height = Math.min(28, (pageWidth - margin * 2) * image.height / image.width);
@@ -68,10 +68,9 @@ export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
       doc.setFontSize(13);
       doc.text("PROFORMA INVOICE", pageWidth / 2, 14, { align: "center" });
     }
-    drawPdfFixedFooter(doc, margin, pageWidth, footerTop);
   };
 
-  drawChrome();
+  drawFirstPageHeader();
   let y = 12 + headerHeight;
   doc.setTextColor(...navy);
   doc.setFont("helvetica", "bold");
@@ -81,7 +80,7 @@ export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
 
   autoTable(doc, {
     startY: y,
-    margin: { left: margin, right: margin, top: 12 + headerHeight, bottom: pageHeight - footerTop + 5 },
+    margin: { left: margin, right: margin, top: margin, bottom: 18 },
     theme: "plain",
     styles: { fontSize: 8.5, cellPadding: 1.5, textColor: [51, 65, 85], overflow: "linebreak" },
     columnStyles: { 0: { fontStyle: "bold", textColor: navy, cellWidth: 27 }, 1: { cellWidth: 63 }, 2: { fontStyle: "bold", textColor: navy, cellWidth: 27 }, 3: { cellWidth: 63 } },
@@ -93,25 +92,19 @@ export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
       ["PO No.", invoice.po_no || "-", "PO Date", invoice.po_date ? formatDate(invoice.po_date) : "-"],
       ["Project", invoice.project || "-", "", ""],
       ...addressRows
-    ],
-    didDrawPage: ({ pageNumber }) => {
-      if (pageNumber > 1) drawChrome();
-    }
+    ]
   });
 
   autoTable(doc, {
     startY: lastTableY(doc) + 5,
-    margin: { left: margin, right: margin, top: 12 + headerHeight, bottom: pageHeight - footerTop + 5 },
+    margin: { left: margin, right: margin, top: margin, bottom: 18 },
     head: [["Sl. No.", "Item Description", "Model Type", "Qty.", "Unit Price (INR)", "Total Price (INR)"]],
     body: invoice.items.map((item, index) => [index + 1, item.item_description, item.model_type || "-", formatNumber(item.quantity), formatMoney(item.unit_price), formatMoney(item.quantity * item.unit_price)]),
     showHead: "everyPage",
     rowPageBreak: "avoid",
     styles: { fontSize: 8.2, cellPadding: 2, overflow: "linebreak", valign: "top", lineColor: border, lineWidth: 0.15 },
     headStyles: { fillColor: navy, textColor: [255, 255, 255], fontStyle: "bold", halign: "center" },
-    columnStyles: { 0: { cellWidth: 13, halign: "center" }, 1: { cellWidth: 72 }, 2: { cellWidth: 31 }, 3: { cellWidth: 16, halign: "right" }, 4: { cellWidth: 25, halign: "right" }, 5: { cellWidth: 25, halign: "right" } },
-    didDrawPage: ({ pageNumber }) => {
-      if (pageNumber > 1) drawChrome();
-    }
+    columnStyles: { 0: { cellWidth: 13, halign: "center" }, 1: { cellWidth: 72 }, 2: { cellWidth: 31 }, 3: { cellWidth: 16, halign: "right" }, 4: { cellWidth: 25, halign: "right" }, 5: { cellWidth: 25, halign: "right" } }
   });
 
   autoTable(doc, {
@@ -130,9 +123,6 @@ export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
         cell.styles.fillColor = navy;
         cell.styles.textColor = [255, 255, 255];
       }
-    },
-    didDrawPage: ({ pageNumber }) => {
-      if (pageNumber > 1) drawChrome();
     }
   });
 
@@ -146,14 +136,12 @@ export async function exportProformaInvoicePdf(invoice: ProformaInvoice) {
       rowPageBreak: "avoid",
       styles: { fontSize: 8.2, cellPadding: 1.8, overflow: "linebreak", lineColor: border, lineWidth: 0.15 },
       headStyles: { fillColor: navy, textColor: [255, 255, 255], fontStyle: "bold" },
-      columnStyles: { 0: { cellWidth: 45, fontStyle: "bold", textColor: navy }, 1: { cellWidth: 137 } },
-      didDrawPage: ({ pageNumber }) => {
-        if (pageNumber > 1) drawChrome();
-      }
+      columnStyles: { 0: { cellWidth: 45, fontStyle: "bold", textColor: navy }, 1: { cellWidth: 137 } }
     });
   }
 
-  drawPdfSignature(doc, invoice, margin, headerHeight, footerTop, drawChrome);
+  drawPdfSignature(doc, invoice, margin, footerTop);
+  drawPdfFixedFooter(doc, margin, pageWidth, footerTop);
   doc.save(`${safeFileName(invoice.pi_no)}.pdf`);
 }
 
@@ -268,13 +256,12 @@ function wordCell(text: string, options: { bold?: boolean; shade?: string; color
   });
 }
 
-function drawPdfSignature(doc: jsPDF, invoice: ProformaInvoice, margin: number, headerHeight: number, footerTop: number, drawChrome: () => void) {
+function drawPdfSignature(doc: jsPDF, invoice: ProformaInvoice, margin: number, footerTop: number) {
   let y = lastTableY(doc) + 9;
   const signatureHeight = 34;
   if (y + signatureHeight > footerTop) {
     doc.addPage();
-    drawChrome();
-    y = 12 + headerHeight;
+    y = margin;
   }
   doc.setFontSize(9.5);
   doc.setFont("helvetica", "bold");
@@ -298,6 +285,8 @@ function drawPdfSignature(doc: jsPDF, invoice: ProformaInvoice, margin: number, 
 }
 
 function drawPdfFixedFooter(doc: jsPDF, margin: number, pageWidth: number, y: number) {
+  // All flowing content has been rendered, so this is the definitive last page.
+  doc.setPage(doc.getNumberOfPages());
   doc.setDrawColor(...border);
   doc.line(margin, y - 3, pageWidth - margin, y - 3);
   doc.setFontSize(7.2);

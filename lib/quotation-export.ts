@@ -24,10 +24,12 @@ export async function exportQuotationPdf(quotation: Quotation) {
   const headerImageData = await loadHeaderImage(quotation.header_image_url || defaultCompanyHeaderUrl);
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 14;
   const headerHeight = headerImageData ? 28 : 12;
+  const footerTop = 262;
 
-  const drawPageChrome = () => {
+  const drawFirstPageHeader = () => {
     if (headerImageData) {
       const image = doc.getImageProperties(headerImageData);
       const height = Math.min(28, (pageWidth - margin * 2) * image.height / image.width);
@@ -41,17 +43,9 @@ export async function exportQuotationPdf(quotation: Quotation) {
       doc.text("BUSINESS QUOTATION", pageWidth / 2, 14, { align: "center" });
     }
 
-    const pageCount = doc.getNumberOfPages();
-    doc.setDrawColor(203, 213, 225);
-    doc.line(margin, 284, pageWidth - margin, 284);
-    doc.setTextColor(100, 116, 139);
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Quotation ${quotation.quotation_no}`, margin, 289);
-    doc.text(`Page ${pageCount}`, pageWidth - margin, 289, { align: "right" });
   };
 
-  drawPageChrome();
+  drawFirstPageHeader();
   let y = 12 + headerHeight;
   doc.setTextColor(...navy);
   doc.setFont("helvetica", "bold");
@@ -61,7 +55,7 @@ export async function exportQuotationPdf(quotation: Quotation) {
 
   autoTable(doc, {
     startY: y,
-    margin: { left: margin, right: margin, top: 12 + headerHeight, bottom: 16 },
+    margin: { left: margin, right: margin, top: margin, bottom: 18 },
     theme: "plain",
     styles: { fontSize: 9, cellPadding: 1.6, textColor: [51, 65, 85], overflow: "linebreak" },
     columnStyles: { 0: { fontStyle: "bold", textColor: navy, cellWidth: 29 }, 1: { cellWidth: 61 }, 2: { fontStyle: "bold", textColor: navy, cellWidth: 29 }, 3: { cellWidth: 61 } },
@@ -71,16 +65,13 @@ export async function exportQuotationPdf(quotation: Quotation) {
       ["Contact Person", quotation.contact_person || "-", "Mobile", quotation.mobile_number || "-"],
       ["Email", quotation.email || "-", "GST Number", quotation.gst_number || "-"],
       ...addressRows
-    ],
-    didDrawPage: ({ pageNumber }) => {
-      if (pageNumber > 1) drawPageChrome();
-    }
+    ]
   });
 
   y = lastTableY(doc) + 5;
   autoTable(doc, {
     startY: y,
-    margin: { left: margin, right: margin, top: 12 + headerHeight, bottom: 18 },
+    margin: { left: margin, right: margin, top: margin, bottom: 18 },
     head: [["Sl. No.", "Item Description", "Qty", "Unit", "Unit Price", "Total"]],
     body: quotation.items.map((item, index) => [
       index + 1,
@@ -101,16 +92,13 @@ export async function exportQuotationPdf(quotation: Quotation) {
       3: { cellWidth: 18, halign: "center" },
       4: { cellWidth: 26, halign: "right" },
       5: { cellWidth: 28, halign: "right" }
-    },
-    didDrawPage: ({ pageNumber }) => {
-      if (pageNumber > 1) drawPageChrome();
     }
   });
 
   const summaryStart = lastTableY(doc) + 5;
   autoTable(doc, {
     startY: summaryStart,
-    margin: { left: 112, right: margin, top: 12 + headerHeight, bottom: 18 },
+    margin: { left: 112, right: margin, top: margin, bottom: pageHeight - footerTop + 5 },
     theme: "grid",
     body: [
       ["Subtotal", formatMoney(quotationSubtotal(quotation))],
@@ -127,9 +115,6 @@ export async function exportQuotationPdf(quotation: Quotation) {
         cell.styles.textColor = [255, 255, 255];
         cell.styles.fontStyle = "bold";
       }
-    },
-    didDrawPage: ({ pageNumber }) => {
-      if (pageNumber > 1) drawPageChrome();
     }
   });
 
@@ -137,21 +122,19 @@ export async function exportQuotationPdf(quotation: Quotation) {
     const termsStart = lastTableY(doc) + 7;
     autoTable(doc, {
       startY: termsStart,
-      margin: { left: margin, right: margin, top: 12 + headerHeight, bottom: 18 },
+      margin: { left: margin, right: margin, top: margin, bottom: pageHeight - footerTop + 5 },
       head: [["Terms & Conditions", ""]],
       body: quotation.terms.map((term) => [term.term_key, term.term_value]),
       showHead: "firstPage",
       rowPageBreak: "avoid",
       styles: { fontSize: 8.5, cellPadding: 2, overflow: "linebreak", lineColor: [203, 213, 225], lineWidth: 0.15 },
       headStyles: { fillColor: navy, textColor: [255, 255, 255], fontStyle: "bold" },
-      columnStyles: { 0: { cellWidth: 45, fontStyle: "bold", textColor: navy }, 1: { cellWidth: 137 } },
-      didDrawPage: ({ pageNumber }) => {
-        if (pageNumber > 1) drawPageChrome();
-      }
+      columnStyles: { 0: { cellWidth: 45, fontStyle: "bold", textColor: navy }, 1: { cellWidth: 137 } }
     });
   }
 
-  drawPdfSignature(doc, quotation, margin, headerHeight, drawPageChrome);
+  drawPdfSignature(doc, quotation, margin, footerTop);
+  drawPdfLastPageFooter(doc, margin, pageWidth, footerTop);
   doc.save(`${safeFileName(quotation.quotation_no)}.pdf`);
 }
 
@@ -279,14 +262,12 @@ function termsTable(quotation: Quotation) {
   });
 }
 
-function drawPdfSignature(doc: jsPDF, quotation: Quotation, margin: number, headerHeight: number, drawPageChrome: () => void) {
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const signatureHeight = 68;
+function drawPdfSignature(doc: jsPDF, quotation: Quotation, margin: number, footerTop: number) {
+  const signatureHeight = 75;
   let y = lastTableY(doc) + 10;
-  if (y + signatureHeight > pageHeight - 18) {
+  if (y + signatureHeight > footerTop - 4) {
     doc.addPage();
-    drawPageChrome();
-    y = 12 + headerHeight;
+    y = margin;
   }
 
   doc.setTextColor(51, 65, 85);
@@ -306,6 +287,28 @@ function drawPdfSignature(doc: jsPDF, quotation: Quotation, margin: number, head
   doc.setTextColor(71, 85, 105);
   doc.setFont("helvetica", "normal");
   doc.text(quotation.signature_designation || "-", margin, y);
+}
+
+function drawPdfLastPageFooter(doc: jsPDF, margin: number, pageWidth: number, y: number) {
+  // Content creation is complete here, so the selected page is definitively the last page.
+  doc.setPage(doc.getNumberOfPages());
+  doc.setDrawColor(203, 213, 225);
+  doc.line(margin, y - 3, pageWidth - margin, y - 3);
+  doc.setFontSize(7.2);
+  doc.setTextColor(71, 85, 105);
+  doc.setFont("helvetica", "bold");
+  doc.text("Regd. Office :", margin, y);
+  doc.setFont("helvetica", "normal");
+  doc.text(["Adhunik Switchgears Pvt Ltd", "Plot No -1700 HSIIDC, RAI Industrial Estate, Sonipat, Haryana"], margin, y + 4);
+  doc.setFont("helvetica", "bold");
+  doc.text("BANK INFORMATION", pageWidth / 2, y);
+  doc.setFont("helvetica", "normal");
+  [
+    "Party Name: M/s ADHUNIK SWITCHGEARS PVT LTD",
+    "Account No: 467901010035389 | Bank: UNION BANK OF INDIA",
+    "Branch: SHALIMAR BAGH, NEW DELHI | IFSC: UBIN0546798 | MICR: 110026036",
+    "PAN: AAACA2633A | GSTN: 06AAACA2633A1ZJ"
+  ].forEach((line, index) => doc.text(line, pageWidth / 2, y + 4 + index * 4));
 }
 
 function signatureParagraphs(quotation: Quotation) {
