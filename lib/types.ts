@@ -450,3 +450,11 @@ export type AnalyticsBreakdowns = {
   managerWiseConversion: AnalyticsBreakdownRow[];
   salesFunnel: AnalyticsBreakdownRow[];
 };
+
+export type AnalyticsEntity = "bidder" | "ge" | "cwe" | "contractor";
+export type AnalyticsFilters = {
+  dateFrom?: string; dateTo?: string; user?: string; manager?: string; bidder?: string;
+  ge?: string; cwe?: string; organisation?: string; tenderStatus?: string; leadStage?: string; source?: string;
+};
+export type AnalyticsSort = { key: string; direction: "asc" | "desc" };
+export type AnalyticsTableResult = { rows: Record<string, string | number | null>[]; total: number };

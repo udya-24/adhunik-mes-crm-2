@@ -1,95 +1,28 @@
 "use client";
-
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { UserAnalyticsPanel } from "@/components/analytics/user-analytics-drawer";
+import { useEffect,useState } from "react";
+import { ArrowDown,ArrowUp,ArrowUpDown,ChevronLeft,ChevronRight,Download,Search,X } from "lucide-react";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import { UserPerformanceTable } from "@/components/analytics/user-performance-table";
+import { EntityDetail360 } from "@/components/analytics/entity-detail-360";
 import { AnalyticsOverview } from "@/components/dashboard/analytics-overview";
-import { Card } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
-import type { AnalyticsBreakdowns, DashboardMetrics, Profile, UserPerformanceRow } from "@/lib/types";
+import { Button } from "@/components/ui/button"; import { Card } from "@/components/ui/card"; import { inputClass } from "@/components/ui/field"; import { PageHeader } from "@/components/ui/page-header";
+import { createClient } from "@/lib/supabase/client";
+import type { AnalyticsEntity,AnalyticsFilters,AnalyticsSort,DashboardMetrics,Profile,UserPerformanceRow } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
+type Option={value:string;label:string}; type FilterOptions={users:Option[];managers:Option[];bidders:string[];ges:string[];cwes:string[];organisations:string[];leadStages:string[]}; type Column={key:string;label:string;kind?:"currency"|"percent"|"date"};
+const emptyOptions:FilterOptions={users:[],managers:[],bidders:[],ges:[],cwes:[],organisations:[],leadStages:[]};
+const configs:{entity:AnalyticsEntity;title:string;columns:Column[]}[]=[
+ {entity:"bidder",title:"Bidder Analytics",columns:[C("name","Bidder Name"),C("total_tenders","Total Tenders"),C("awarded_value","Total Awarded Value","currency"),C("our_value","Total Our Value","currency"),C("won","Won"),C("lost","Lost"),C("pending","Pending"),C("new_leads","New Leads"),C("average_tender_value","Average Tender Value","currency"),C("assigned_users","Assigned User"),C("last_tender_date","Last Tender Date","date")]},
+ {entity:"ge",title:"GE Analytics",columns:[C("name","GE"),C("total_tenders","Total Tenders"),C("awarded_value","Awarded Value","currency"),C("our_value","Our Value","currency"),C("won","Won"),C("lost","Lost"),C("pending","Pending"),C("conversion_percent","Conversion %","percent"),C("highest_tender","Highest Tender","currency"),C("average_tender_value","Average Tender Value","currency")]},
+ {entity:"cwe",title:"CWE Analytics",columns:[C("name","CWE"),C("total_tenders","Total Tenders"),C("awarded_value","Awarded Value","currency"),C("our_value","Our Value","currency"),C("won","Won"),C("lost","Lost"),C("pending","Pending"),C("assigned_users","Assigned Users")]},
+ {entity:"contractor",title:"Contractor Analytics",columns:[C("name","Contractor"),C("total_tenders","Total Tenders"),C("awarded_value","Awarded Value","currency"),C("our_value","Our Value","currency"),C("assigned_users","Assigned User"),C("contact","Contact"),C("conversion_percent","Win %","percent")]}
+];
+function C(key:string,label:string,kind?:Column["kind"]):Column{return{key,label,kind}}
+export function AnalyticsCharts({metrics,userPerformance,currentProfile}:{metrics:DashboardMetrics;userPerformance:UserPerformanceRow[];currentProfile:Profile|null}){const[filters,setFilters]=useState<AnalyticsFilters>({}),[options,setOptions]=useState(emptyOptions);useEffect(()=>{createClient().rpc("analytics_filter_options").then(({data,error})=>{if(error)console.error(error);else if(data)setOptions(data as FilterOptions)})},[]);return <div className="space-y-6"><PageHeader eyebrow={currentProfile?.role==="MANAGER"?"Team Analytics":"Organization Analytics"} title="Tender Intelligence" description="Enterprise drill-down reporting with shared filters and server-side aggregation."/><AnalyticsOverview metrics={metrics}/><FilterBar value={filters} options={options} onChange={setFilters}/><UserPerformanceTable rows={userPerformance} currentUserId={currentProfile?.id??null} currentUserRole={currentProfile?.role??null}/>{configs.map(x=><AnalyticsTable key={x.entity}{...x} filters={filters}/>)}</div>}
+function FilterBar({value,options,onChange}:{value:AnalyticsFilters;options:FilterOptions;onChange:(x:AnalyticsFilters)=>void}){const set=(k:keyof AnalyticsFilters,v:string)=>onChange({...value,[k]:v||undefined});const selects:[keyof AnalyticsFilters,string,(string|Option)[]][]=[["user","User",options.users],["manager","Manager",options.managers],["bidder","Bidder",options.bidders],["ge","GE",options.ges],["cwe","CWE",options.cwes],["organisation","Organisation",options.organisations],["tenderStatus","Tender Status",["NEW","ASSIGNED","CONTACTED","FOLLOW_UP","QUOTATION_SENT","NEGOTIATION","WON","LOST"]],["leadStage","Lead Stage",options.leadStages],["source","Source",["EXCEL_UPLOAD","MANUAL_ENTRY"]]];return <Card><div className="mb-3 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-600">Global filters</p><h2 className="font-bold text-navy-900">Analytics Filter Bar</h2></div><Button variant="ghost" onClick={()=>onChange({})}>Clear all</Button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6"><input aria-label="Date from" type="date" className={inputClass} value={value.dateFrom??""} onChange={e=>set("dateFrom",e.target.value)}/><input aria-label="Date to" type="date" className={inputClass} value={value.dateTo??""} onChange={e=>set("dateTo",e.target.value)}/>{selects.map(([k,l,items])=><select key={k} aria-label={l} className={inputClass} value={value[k]??""} onChange={e=>set(k,e.target.value)}><option value="">All {l}</option>{items.map(item=>{const o=typeof item==="string"?{value:item,label:item}:item;return <option key={o.value} value={o.value}>{o.label}</option>})}</select>)}</div></Card>}
+function AnalyticsTable({entity,title,columns,filters}:{entity:AnalyticsEntity;title:string;columns:Column[];filters:AnalyticsFilters}){const[rows,setRows]=useState<Record<string,string|number|null>[]>([]),[total,setTotal]=useState(0),[page,setPage]=useState(1),[size,setSize]=useState(25),[search,setSearch]=useState(""),[needle,setNeedle]=useState(""),[sorts,setSorts]=useState<AnalyticsSort[]>([{key:"total_tenders",direction:"desc"}]),[loading,setLoading]=useState(true),[selected,setSelected]=useState<string|null>(null);useEffect(()=>{const t=setTimeout(()=>setNeedle(search),300);return()=>clearTimeout(t)},[search]);useEffect(()=>setPage(1),[filters,needle,size]);useEffect(()=>{let active=true;setLoading(true);createClient().rpc("analytics_table",{p_entity:entity,p_filters:filters,p_search:needle,p_sorts:sorts,p_page:page,p_page_size:size,p_export:false}).then(({data,error})=>{if(!active)return;if(error){console.error(error);setRows([]);setTotal(0)}else{const r=data as {rows:Record<string,string|number|null>[];total:number};setRows(r.rows??[]);setTotal(Number(r.total??0))}setLoading(false)});return()=>{active=false}},[entity,filters,needle,sorts,page,size]);const pages=Math.max(1,Math.ceil(total/size));function sort(key:string,add:boolean){setSorts(cur=>{const old=cur.find(x=>x.key===key),next:AnalyticsSort={key,direction:old?.direction==="asc"?"desc":"asc"};return add?[...cur.filter(x=>x.key!==key),next]:[next]})}async function runExport(format:"csv"|"xlsx"|"pdf"){const{data,error}=await createClient().rpc("analytics_table",{p_entity:entity,p_filters:filters,p_search:needle,p_sorts:sorts,p_page:1,p_page_size:100,p_export:true});if(error){alert(error.message);return}const output=((data as {rows:Record<string,unknown>[]}).rows??[]).map(row=>Object.fromEntries(columns.map(c=>[c.label,row[c.key]??""])));if(format==="csv"){const csv=XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(output));download(new Blob([csv],{type:"text/csv;charset=utf-8"}),`${entity}-analytics.csv`)}else if(format==="xlsx"){const b=XLSX.utils.book_new();XLSX.utils.book_append_sheet(b,XLSX.utils.json_to_sheet(output),title.slice(0,31));XLSX.writeFile(b,`${entity}-analytics.xlsx`)}else{const d=new jsPDF({orientation:"landscape"});d.text(title,14,14);autoTable(d,{head:[columns.map(c=>c.label)],body:output.map(row=>columns.map(c=>String(row[c.label]??""))),startY:20,styles:{fontSize:7}});d.save(`${entity}-analytics.pdf`)}}return <><Card className="overflow-hidden p-0"><div className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-600">Drill-down report</p><h2 className="font-bold text-navy-900">{title}</h2></div><div className="flex flex-wrap gap-2"><label className="relative"><Search size={17} className="absolute left-3 top-3 text-slate-400"/><input className={`${inputClass} pl-9`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${entity}`}/></label>{(["csv","xlsx","pdf"]as const).map(x=><Button key={x} variant="secondary" onClick={()=>runExport(x)}><Download size={15}/>{x.toUpperCase()}</Button>)}</div></div><div className="max-h-[560px] overflow-auto table-scroll"><table className="w-full min-w-[1100px] text-left text-sm"><thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase text-slate-600"><tr>{columns.map(c=>{const i=sorts.findIndex(x=>x.key===c.key),s=sorts[i];return <th key={c.key} className="whitespace-nowrap px-3 py-3"><button className="inline-flex items-center gap-1 font-bold" title="Shift-click to add another sort" onClick={e=>sort(c.key,e.shiftKey)}>{c.label}{s?(s.direction==="asc"?<ArrowUp size={14}/>:<ArrowDown size={14}/>):<ArrowUpDown size={14} className="text-slate-400"/>}{i>=0&&sorts.length>1?<sup>{i+1}</sup>:null}</button></th>})}</tr></thead><tbody>{rows.map(row=><tr key={String(row.name)} className="cursor-pointer border-t hover:bg-navy-50" onClick={()=>setSelected(String(row.name))}>{columns.map(c=><td key={c.key} className={`whitespace-nowrap px-3 py-3 ${c.key==="name"?"font-semibold text-navy-900":""}`}>{display(row[c.key],c.kind)}</td>)}</tr>)}{loading?<tr><td colSpan={columns.length} className="p-10 text-center text-slate-500">Loading aggregated data…</td></tr>:!rows.length?<tr><td colSpan={columns.length} className="p-10 text-center text-slate-500">No results match the active filters.</td></tr>:null}</tbody></table></div><div className="flex items-center justify-between border-t p-4 text-sm"><span>{total.toLocaleString()} grouped results</span><div className="flex items-center gap-2"><select className={inputClass} value={size} onChange={e=>setSize(Number(e.target.value))}>{[10,25,50,100].map(n=><option key={n}>{n}</option>)}</select><Button variant="secondary" disabled={page<=1} onClick={()=>setPage(p=>p-1)}><ChevronLeft size={16}/></Button><span>Page {page} of {pages}</span><Button variant="secondary" disabled={page>=pages} onClick={()=>setPage(p=>p+1)}><ChevronRight size={16}/></Button></div></div></Card>{selected?<EntityDetail360 entity={entity} name={selected} filters={filters} onClose={()=>setSelected(null)}/>:null}</>}
 
-export function AnalyticsCharts({
-  metrics,
-  breakdowns,
-  userPerformance,
-  currentProfile
-}: {
-  metrics: DashboardMetrics;
-  breakdowns: AnalyticsBreakdowns;
-  userPerformance: UserPerformanceRow[];
-  currentProfile: Profile | null;
-}) {
-  const currentUserId = currentProfile?.id ?? null;
-  const currentUserRole = currentProfile?.role ?? null;
-  const isUser = currentUserRole === "USER";
-  const pageCopy = currentUserRole === "MANAGER"
-    ? {
-        eyebrow: "Team Analytics",
-        title: "Team Performance",
-        description: "Manager-level tender, value, pipeline, and team performance analytics."
-      }
-    : {
-        eyebrow: "Organization Analytics",
-        title: "Tender Intelligence",
-        description: "Company KPIs, user performance, pipeline, GE, CWE, contractor, and organisation analytics."
-      };
 
-  const chartGroups = [
-    ["Our Value by User", breakdowns.ourValueByUser, "ourValue"],
-    ["Our Value by GE", breakdowns.ourValueByGE, "ourValue"],
-    ["Our Value by Contractor", breakdowns.ourValueByContractor, "ourValue"],
-    ["Monthly Our Value Trend", breakdowns.monthlyOurValueTrend, "ourValue"],
-    ["Tender Ageing", breakdowns.ageing, "ourValue"],
-    ["Lead Stage Distribution", breakdowns.leadStageDistribution, "count"],
-    ["Lost Leads by Reason", breakdowns.lostLeadsByReason, "ourValue"],
-    ["Competitor Analysis", breakdowns.competitorAnalysis, "ourValue"],
-    ["User-wise Conversion", breakdowns.userWiseConversion, "count"],
-    ["Manager-wise Conversion", breakdowns.managerWiseConversion, "count"],
-    ["Sales Funnel", breakdowns.salesFunnel, "ourValue"],
-    ["GE Analysis", breakdowns.ge, "count"],
-    ["Contractor Analysis", breakdowns.bidder, "value"],
-    ["User Analysis", breakdowns.user, "count"]
-  ] as const;
-
-  if (isUser && currentProfile) {
-    return (
-      <div className="space-y-6">
-        <PageHeader eyebrow="My Performance" title="My Analytics" description="Your assigned tenders, uploaded tenders, values, pipeline, documents, follow-ups, and recent activity." />
-        <UserAnalyticsPanel user={currentProfile} currentUserId={currentUserId} currentUserRole={currentUserRole} title="My Performance" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <PageHeader eyebrow={pageCopy.eyebrow} title={pageCopy.title} description={pageCopy.description} />
-      <AnalyticsOverview metrics={metrics} />
-      <UserPerformanceTable rows={userPerformance} currentUserId={currentUserId} currentUserRole={currentUserRole} />
-      <div className="grid gap-4 xl:grid-cols-2">
-        {chartGroups.map(([label, rows, primaryKey]) => (
-          <Card key={label}>
-            <div className="mb-4">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-600">{label}</p>
-              <h2 className="mt-1 font-bold text-navy-900">{label}</h2>
-            </div>
-            <div className="overflow-x-auto table-scroll">
-              <div className="h-80 min-w-[520px] md:min-w-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={rows}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(value, name) => (String(name).toLowerCase().includes("value") ? formatCurrency(Number(value)) : value)} />
-                    <Bar dataKey={primaryKey} fill="#173b71" radius={[4, 4, 0, 0]} />
-                    {primaryKey !== "ourValue" && <Bar dataKey="ourValue" fill="#f97316" radius={[4, 4, 0, 0]} />}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
+function display(v:string|number|null,k?:Column["kind"]){if(v==null||v==="")return"—";if(k==="currency")return formatCurrency(Number(v));if(k==="percent")return`${Number(v).toFixed(1)}%`;if(k==="date")return new Date(String(v)).toLocaleDateString("en-IN");return typeof v==="number"?v.toLocaleString("en-IN"):v}function download(b:Blob,n:string){const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=n;a.click();URL.revokeObjectURL(a.href)}
